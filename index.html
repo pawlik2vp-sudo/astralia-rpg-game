@@ -630,6 +630,10 @@ const FOOD_TYPES = {
 };
 const FOOD_REGEN_PER_STEP = 12;
 const REST_HEAL_FRACTION = 0.15;
+// "Odpocznij" ma realny koszt czasu, nie tylko ryzyka: po użyciu jest
+// zablokowany na REST_COOLDOWN_MOVES kroków (śledzone przez moveCount,
+// tak jak odrodzenia Herosów/Bossów), więc nie da się leczyć nim w kółko.
+const REST_COOLDOWN_MOVES = 20;
 
 function lootSellValue(item) {
   const base = RARITY_SELL_BASE[item.rarity] || 3;
@@ -1839,6 +1843,7 @@ function AstraliaRPG() {
   const [dungeonChestOpened, setDungeonChestOpened] = useState({ area1: false, area2: false, area3: false });
   const [dungeonBossRespawnAt, setDungeonBossRespawnAt] = useState({ area1: 0, area2: 0, area3: 0 });
   const [overworldReturn, setOverworldReturn] = useState({ x: 1, y: 1 });
+  const [restCooldownAt, setRestCooldownAt] = useState(0);
   const inDungeonRef = useRef(inDungeon);
   useEffect(() => { inDungeonRef.current = inDungeon; }, [inDungeon]);
   const [soundOn, setSoundOn] = useState(true);
@@ -1905,7 +1910,7 @@ function AstraliaRPG() {
     const character = {
       player: { ...playerRef.current, accountToken: undefined, accountUsername: undefined },
       pos, area, monsterSpawns, npcSpawns, heroRespawnAt, moveCount, inDungeon,
-      dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened,
+      dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened, restCooldownAt,
     };
     return onlineFetch(`${url}/api/character`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1939,6 +1944,7 @@ function AstraliaRPG() {
     if (saved.dungeonLayoutIdx) setDungeonLayoutIdx(saved.dungeonLayoutIdx);
     if (saved.dungeonChestOpened) setDungeonChestOpened(saved.dungeonChestOpened);
     if (saved.overworldReturn) setOverworldReturn(saved.overworldReturn);
+    if (typeof saved.restCooldownAt === 'number') setRestCooldownAt(saved.restCooldownAt);
     return data;
   }
   function allocateAttributePoint(stat) {
@@ -2090,6 +2096,7 @@ function AstraliaRPG() {
         if (data.dungeonLayoutIdx) setDungeonLayoutIdx(data.dungeonLayoutIdx);
         if (data.dungeonChestOpened) setDungeonChestOpened(data.dungeonChestOpened);
         if (data.overworldReturn) setOverworldReturn(data.overworldReturn);
+        if (typeof data.restCooldownAt === 'number') setRestCooldownAt(data.restCooldownAt);
       }
     } catch (e) {
       // brak zapisu lub pamięć niedostępna — zaczynamy od nowa
@@ -2104,12 +2111,12 @@ function AstraliaRPG() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setSaveStatus('saving');
     saveTimer.current = setTimeout(() => {
-      const ok = writeSaveData({ player, pos, area, monsterSpawns, npcSpawns, heroRespawnAt, moveCount, inDungeon, dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened });
+      const ok = writeSaveData({ player, pos, area, monsterSpawns, npcSpawns, heroRespawnAt, moveCount, inDungeon, dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened, restCooldownAt });
       setSaveStatus(ok ? 'saved' : '');
       if (ok) setTimeout(() => setSaveStatus(''), 1200);
     }, 500);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player, pos, area, monsterSpawns, npcSpawns, heroRespawnAt, moveCount, inDungeon, dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened]);
+  }, [player, pos, area, monsterSpawns, npcSpawns, heroRespawnAt, moveCount, inDungeon, dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened, restCooldownAt]);
 
   // Serwerowy zapis postaci: identyczny wzorzec debouncingu co lokalny
   // autosave powyżej, ale aktywny tylko gdy gracz jest zalogowany na konto
@@ -2128,7 +2135,7 @@ function AstraliaRPG() {
         .catch(() => setAccountSaveStatus('error'));
     }, 1500);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player, pos, area, monsterSpawns, npcSpawns, heroRespawnAt, moveCount, inDungeon, dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened, player.accountToken, player.onlineServerUrl]);
+  }, [player, pos, area, monsterSpawns, npcSpawns, heroRespawnAt, moveCount, inDungeon, dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened, restCooldownAt, player.accountToken, player.onlineServerUrl]);
 
   function resetGame() {
     clearSaveData();
@@ -2145,6 +2152,7 @@ function AstraliaRPG() {
     setDungeonLayoutIdx({ area1: 0, area2: 0, area3: 0 });
     setDungeonChestOpened({ area1: false, area2: false, area3: false });
     setOverworldReturn({ x: 1, y: 1 });
+    setRestCooldownAt(0);
     setBattle(null);
     setScreen('map');
     showToast('Nowa gra rozpoczęta!');
@@ -2284,11 +2292,17 @@ function AstraliaRPG() {
   function restAction() {
     if (battle) return;
     const p = playerRef.current;
-    if (p.hp >= p.maxHp) { showToast('Masz już pełne zdrowie!'); return; }
-    const healAmount = Math.round(p.maxHp * REST_HEAL_FRACTION);
+    if (p.hp >= effectiveMaxHp(p)) { showToast('Masz już pełne zdrowie!'); return; }
+    if (moveCount < restCooldownAt) {
+      const remaining = restCooldownAt - moveCount;
+      showToast(`Musisz jeszcze odpocząć od ostatniego odpoczynku — ${remaining} kroków.`);
+      return;
+    }
+    const healAmount = Math.round(effectiveMaxHp(p) * REST_HEAL_FRACTION);
     sound.heal();
     setPlayer((prev) => ({ ...prev, hp: Math.min(effectiveMaxHp(prev), prev.hp + healAmount) }));
     setMoveCount((c) => c + 2);
+    setRestCooldownAt(moveCount + 2 + REST_COOLDOWN_MOVES);
     worldTick(area, pos);
     worldTick(area, pos);
     showToast(`Odpoczywasz... +${healAmount} PŻ (upływa czas).`);
@@ -2296,6 +2310,10 @@ function AstraliaRPG() {
 
   function exitDungeon() {
     if (battle) return;
+    if (pos.x !== DUNGEON_ENTRY_POS.x || pos.y !== DUNGEON_ENTRY_POS.y) {
+      showToast('Musisz wrócić do wejścia (🚪), by opuścić loch!');
+      return;
+    }
     setInDungeon(false);
     setPos(overworldReturn || { x: 1, y: 1 });
   }
@@ -3543,6 +3561,7 @@ function AstraliaRPG() {
             npc={npcSpawns[area] || null}
             heroAvailable={moveCount >= (heroRespawnAt[area] || 0)}
             onRest={restAction} hpFull={player.hp >= effectiveMaxHp(player)}
+            restOnCooldown={moveCount < restCooldownAt} restCooldownIn={Math.max(0, restCooldownAt - moveCount)}
             inDungeon={inDungeon} dungeonSpawns={dungeonSpawns[area] || []}
             bossAvailable={moveCount >= (dungeonBossRespawnAt[area] || 0)}
             bossRespawnIn={Math.max(0, (dungeonBossRespawnAt[area] || 0) - moveCount)}
@@ -3704,7 +3723,8 @@ function tileTexture(tile, x = 0, y = 0) {
   }
 }
 
-function MapScene({ pos, onMove, area, spawns, npc, heroAvailable, onRest, hpFull, inDungeon, dungeonSpawns, bossAvailable, bossRespawnIn, onExitDungeon, dungeonLayoutIdx, dungeonChestOpened }) {
+function MapScene({ pos, onMove, area, spawns, npc, heroAvailable, onRest, hpFull, restOnCooldown, restCooldownIn, inDungeon, dungeonSpawns, bossAvailable, bossRespawnIn, onExitDungeon, dungeonLayoutIdx, dungeonChestOpened }) {
+  const atDungeonEntrance = inDungeon && pos.x === DUNGEON_ENTRY_POS.x && pos.y === DUNGEON_ENTRY_POS.y;
   const grid = inDungeon ? DUNGEON_LAYOUTS[dungeonLayoutIdx || 0] : area === 'area3' ? MAP3 : area === 'area2' ? MAP2 : MAP;
   const colors = inDungeon ? DUNGEON_TILE_COLORS[area] : area === 'area3' ? TILE_COLORS3 : area === 'area2' ? TILE_COLORS2 : TILE_COLORS;
   const heroPos = !inDungeon ? HERO_POS[area] : null;
@@ -3809,30 +3829,40 @@ function MapScene({ pos, onMove, area, spawns, npc, heroAvailable, onRest, hpFul
         </p>
       )}
       {inDungeon ? (
-        <button
-          onClick={onExitDungeon}
-          className="pxbtn"
-          style={{
-            width: '100%', padding: '7px 10px', borderRadius: 6, cursor: 'pointer',
-            background: '#4a4258', color: '#e8dcc0',
-            border: '2px solid #14111c', fontSize: 10, fontWeight: 700,
-          }}
-        >
-          🚪 Opuść Loch
-        </button>
+        <>
+          <button
+            onClick={onExitDungeon}
+            disabled={!atDungeonEntrance}
+            className="pxbtn"
+            style={{
+              width: '100%', padding: '7px 10px', borderRadius: 6, cursor: atDungeonEntrance ? 'pointer' : 'not-allowed',
+              background: atDungeonEntrance ? '#4a4258' : '#2a2438', color: atDungeonEntrance ? '#e8dcc0' : '#5a5468',
+              border: '2px solid #14111c', fontSize: 10, fontWeight: 700,
+            }}
+          >
+            🚪 Opuść Loch
+          </button>
+          {!atDungeonEntrance && (
+            <p style={{ color: '#8a8298', fontSize: 9, textAlign: 'center', margin: '4px 0 0' }}>
+              Wróć do wejścia (🚪), by opuścić loch.
+            </p>
+          )}
+        </>
       ) : (
-        <button
-          onClick={onRest}
-          disabled={hpFull}
-          className="pxbtn"
-          style={{
-            width: '100%', padding: '7px 10px', borderRadius: 6, cursor: hpFull ? 'default' : 'pointer',
-            background: hpFull ? '#2a2438' : '#4a7c59', color: hpFull ? '#5a5468' : '#e8dcc0',
-            border: '2px solid #14111c', fontSize: 10, fontWeight: 700,
-          }}
-        >
-          💤 Odpocznij (+{Math.round(REST_HEAL_FRACTION * 100)}% PŻ)
-        </button>
+        <>
+          <button
+            onClick={onRest}
+            disabled={hpFull || restOnCooldown}
+            className="pxbtn"
+            style={{
+              width: '100%', padding: '7px 10px', borderRadius: 6, cursor: (hpFull || restOnCooldown) ? 'default' : 'pointer',
+              background: (hpFull || restOnCooldown) ? '#2a2438' : '#4a7c59', color: (hpFull || restOnCooldown) ? '#5a5468' : '#e8dcc0',
+              border: '2px solid #14111c', fontSize: 10, fontWeight: 700,
+            }}
+          >
+            💤 Odpocznij (+{Math.round(REST_HEAL_FRACTION * 100)}% PŻ){restOnCooldown ? ` — za ${restCooldownIn} kroków` : ''}
+          </button>
+        </>
       )}
     </div>
   );
@@ -4346,7 +4376,7 @@ function VademecumModal({ onClose }) {
           {Object.values(FOOD_TYPES).map((f) => (
             <div key={f.name} style={{ color: '#e8dcc0', marginBottom: 2 }}>{f.name}: pula {f.pool} PŻ (koszt {f.cost}z)</div>
           ))}
-          <p style={{ marginTop: 6 }}>Zjedzenie bankuje pulę, która leczy {FOOD_REGEN_PER_STEP} PŻ za każdy krok na mapie, aż się wyczerpie. Przycisk "Odpocznij" leczy {Math.round(REST_HEAL_FRACTION * 100)}% PŻ od razu, ale liczy się jak 2 kroki (ryzyko Nemezis/respawnu).</p>
+          <p style={{ marginTop: 6 }}>Zjedzenie bankuje pulę, która leczy {FOOD_REGEN_PER_STEP} PŻ za każdy krok na mapie, aż się wyczerpie. Przycisk "Odpocznij" leczy {Math.round(REST_HEAL_FRACTION * 100)}% PŻ od razu (liczy się jak 2 kroki — ryzyko Nemezis/respawnu), ale potem jest niedostępny przez kolejne {REST_COOLDOWN_MOVES} kroków, więc nie da się nim leczyć w kółko.</p>
         </VademecumSection>
 
         <VademecumSection title="Lochy">
