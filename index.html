@@ -71,13 +71,6 @@
 </script>
 
 <script type="text/babel" data-presets="react">
-import React, { useState, useEffect, useRef } from 'react';
-import * as Tone from 'tone';
-import {
-  Sword, Shield, Package, Store, Heart, Zap, Coins, Hammer,
-  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X, User, Map as MapIcon, Footprints, RotateCcw, BookOpen,
-  Volume2, VolumeX, Globe, Send, Lock,
-} from 'lucide-react';
 
 /* ---------------------------------------------------------
    SOUND — lightweight 8-bit style SFX synthesized on the fly
@@ -1922,7 +1915,7 @@ function clearSaveData() {
 }
 
 
-export default function AstraliaRPG() {
+function AstraliaRPG() {
   const [player, setPlayer] = useState(INITIAL_PLAYER);
   const [pos, setPos] = useState(INITIAL_POS);
   const [area, setArea] = useState('area1');
