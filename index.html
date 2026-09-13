@@ -67,6 +67,7 @@
   var VolumeX = makeIcon('🔇');
   var Globe = makeIcon('🌐');
   var Send = makeIcon('➤');
+  var Lock = makeIcon('🔒');
 </script>
 
 <script type="text/babel" data-presets="react">
@@ -1504,6 +1505,8 @@ function buildInitialPlayer(classKey) {
     onlinePlayerId: makeOnlinePlayerId(),
     onlineServerUrl: '',
     onlineNick: '',
+    accountToken: null,
+    accountUsername: null,
     bossKills: 0,
     bossKills2: 0,
     bossKills3: 0,
@@ -1880,6 +1883,64 @@ function AstraliaRPG() {
   function updateOnlineConfig(serverUrl, nick) {
     setPlayer((prev) => ({ ...prev, onlineServerUrl: serverUrl, onlineNick: nick }));
   }
+  function updateAccountAuth(token, username) {
+    setPlayer((prev) => ({ ...prev, accountToken: token, accountUsername: username }));
+  }
+  function logoutAccount() {
+    const p = playerRef.current;
+    const url = (p.onlineServerUrl || '').trim().replace(/\/+$/, '');
+    const token = p.accountToken;
+    if (url && token) {
+      onlineFetch(`${url}/api/logout`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      }).catch(() => { /* nieważne — i tak czyścimy lokalnie */ });
+    }
+    setPlayer((prev) => ({ ...prev, accountToken: null, accountUsername: null }));
+  }
+  function saveCharacterToServer() {
+    const p = playerRef.current;
+    const url = (p.onlineServerUrl || '').trim().replace(/\/+$/, '');
+    if (!url || !p.accountToken) return Promise.reject(new Error('brak_konfiguracji'));
+    const character = {
+      player: { ...playerRef.current, accountToken: undefined, accountUsername: undefined },
+      pos, area, monsterSpawns, npcSpawns, heroRespawnAt, moveCount, inDungeon,
+      dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened,
+    };
+    return onlineFetch(`${url}/api/character`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: p.accountToken, character }),
+    });
+  }
+  async function loadCharacterFromServer() {
+    const p = playerRef.current;
+    const url = (p.onlineServerUrl || '').trim().replace(/\/+$/, '');
+    if (!url || !p.accountToken) throw new Error('brak_konfiguracji');
+    const data = await onlineFetch(`${url}/api/character?token=${encodeURIComponent(p.accountToken)}`);
+    const saved = data && data.character;
+    if (!saved) throw new Error('brak_zapisu');
+    const keepToken = p.accountToken;
+    const keepUsername = p.accountUsername;
+    const keepServerUrl = p.onlineServerUrl;
+    const keepNick = p.onlineNick;
+    if (saved.player) {
+      const restored = withDailyQuests(ensurePlayerShape(saved.player));
+      setPlayer({ ...restored, accountToken: keepToken, accountUsername: keepUsername, onlineServerUrl: keepServerUrl, onlineNick: keepNick });
+    }
+    if (saved.pos) setPos(saved.pos);
+    if (saved.area) setArea(saved.area);
+    if (saved.monsterSpawns) setMonsterSpawns(saved.monsterSpawns);
+    if (saved.npcSpawns) setNpcSpawns(saved.npcSpawns);
+    if (saved.heroRespawnAt) setHeroRespawnAt(saved.heroRespawnAt);
+    if (typeof saved.moveCount === 'number') setMoveCount(saved.moveCount);
+    if (typeof saved.inDungeon === 'boolean') setInDungeon(saved.inDungeon);
+    if (saved.dungeonSpawns) setDungeonSpawns(saved.dungeonSpawns);
+    if (saved.dungeonBossRespawnAt) setDungeonBossRespawnAt(saved.dungeonBossRespawnAt);
+    if (saved.dungeonLayoutIdx) setDungeonLayoutIdx(saved.dungeonLayoutIdx);
+    if (saved.dungeonChestOpened) setDungeonChestOpened(saved.dungeonChestOpened);
+    if (saved.overworldReturn) setOverworldReturn(saved.overworldReturn);
+    return data;
+  }
   function allocateAttributePoint(stat) {
     setPlayer((prev) => {
       if ((prev.unspentPoints || 0) <= 0) return prev;
@@ -2049,6 +2110,25 @@ function AstraliaRPG() {
     }, 500);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player, pos, area, monsterSpawns, npcSpawns, heroRespawnAt, moveCount, inDungeon, dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened]);
+
+  // Serwerowy zapis postaci: identyczny wzorzec debouncingu co lokalny
+  // autosave powyżej, ale aktywny tylko gdy gracz jest zalogowany na konto
+  // (ma accountToken) i ma skonfigurowany adres serwera. Ciche błędy — brak
+  // połączenia nigdy nie może zepsuć rozgrywki, lokalny zapis i tak działa.
+  const accountSaveTimer = useRef(null);
+  const [accountSaveStatus, setAccountSaveStatus] = useState('');
+  useEffect(() => {
+    if (!hasLoadedRef.current) return;
+    if (!player.accountToken || !(player.onlineServerUrl || '').trim()) return;
+    if (accountSaveTimer.current) clearTimeout(accountSaveTimer.current);
+    setAccountSaveStatus('saving');
+    accountSaveTimer.current = setTimeout(() => {
+      saveCharacterToServer()
+        .then(() => { setAccountSaveStatus('saved'); setTimeout(() => setAccountSaveStatus(''), 1200); })
+        .catch(() => setAccountSaveStatus('error'));
+    }, 1500);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [player, pos, area, monsterSpawns, npcSpawns, heroRespawnAt, moveCount, inDungeon, dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened, player.accountToken, player.onlineServerUrl]);
 
   function resetGame() {
     clearSaveData();
@@ -3477,7 +3557,15 @@ function AstraliaRPG() {
         ) : screen === 'bestiary' ? (
           <BestiaryScreen player={player} />
         ) : screen === 'online' ? (
-          <OnlineScreen player={player} onUpdateConfig={updateOnlineConfig} />
+          <OnlineScreen
+            player={player}
+            onUpdateConfig={updateOnlineConfig}
+            onUpdateAccountAuth={updateAccountAuth}
+            onLogoutAccount={logoutAccount}
+            onSaveToServer={saveCharacterToServer}
+            onLoadFromServer={loadCharacterFromServer}
+            accountSaveStatus={accountSaveStatus}
+          />
         ) : (
           <ShopScreen
             onTown={onTown}
@@ -4614,7 +4702,7 @@ async function onlineFetch(url, options, timeoutMs = 6000) {
   }
 }
 
-function OnlineScreen({ player, onUpdateConfig }) {
+function OnlineScreen({ player, onUpdateConfig, onUpdateAccountAuth, onLogoutAccount, onSaveToServer, onLoadFromServer, accountSaveStatus }) {
   const serverUrl = (player.onlineServerUrl || '').trim().replace(/\/+$/, '');
   const [urlDraft, setUrlDraft] = useState(player.onlineServerUrl || '');
   const [nickDraft, setNickDraft] = useState(player.onlineNick || '');
@@ -4624,6 +4712,88 @@ function OnlineScreen({ player, onUpdateConfig }) {
   const [status, setStatus] = useState('disconnected');
   const lastTsRef = useRef(0);
   const chatBoxRef = useRef(null);
+
+  const [authTab, setAuthTab] = useState('login');
+  const [authUsername, setAuthUsername] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [loadConfirmOpen, setLoadConfirmOpen] = useState(false);
+  const [loadBusy, setLoadBusy] = useState(false);
+  const [loadMsg, setLoadMsg] = useState('');
+  const [manualSaveMsg, setManualSaveMsg] = useState('');
+
+  async function handleRegister() {
+    const u = authUsername.trim();
+    setAuthError('');
+    if (!serverUrl) { setAuthError('Najpierw podaj i połącz adres serwera powyżej.'); return; }
+    if (u.length < 3 || u.length > 20 || !/^[A-Za-z0-9_]+$/.test(u)) { setAuthError('Nazwa użytkownika: 3–20 znaków, tylko litery/cyfry/podkreślenie.'); return; }
+    if (authPassword.length < 4) { setAuthError('Hasło musi mieć co najmniej 4 znaki.'); return; }
+    setAuthBusy(true);
+    try {
+      const data = await onlineFetch(`${serverUrl}/api/register`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: u, password: authPassword }),
+      });
+      onUpdateAccountAuth(data.token, data.username);
+      setAuthPassword('');
+    } catch (e) {
+      const msg = String(e && e.message || '');
+      if (msg.includes('409')) setAuthError('Ta nazwa użytkownika jest już zajęta.');
+      else setAuthError('Nie udało się zarejestrować — sprawdź adres serwera i spróbuj ponownie.');
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleLogin() {
+    const u = authUsername.trim();
+    setAuthError('');
+    if (!serverUrl) { setAuthError('Najpierw podaj i połącz adres serwera powyżej.'); return; }
+    if (!u || !authPassword) { setAuthError('Podaj nazwę użytkownika i hasło.'); return; }
+    setAuthBusy(true);
+    try {
+      const data = await onlineFetch(`${serverUrl}/api/login`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: u, password: authPassword }),
+      });
+      onUpdateAccountAuth(data.token, data.username);
+      setAuthPassword('');
+    } catch (e) {
+      const msg = String(e && e.message || '');
+      if (msg.includes('401')) setAuthError('Nieprawidłowa nazwa użytkownika lub hasło.');
+      else setAuthError('Nie udało się zalogować — sprawdź adres serwera i spróbuj ponownie.');
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleManualSave() {
+    setManualSaveMsg('');
+    try {
+      await onSaveToServer();
+      setManualSaveMsg('Zapisano postać na serwerze.');
+    } catch (e) {
+      setManualSaveMsg('Błąd zapisu — spróbuj ponownie.');
+    } finally {
+      setTimeout(() => setManualSaveMsg(''), 3000);
+    }
+  }
+
+  async function handleConfirmLoad() {
+    setLoadBusy(true);
+    setLoadMsg('');
+    try {
+      await onLoadFromServer();
+      setLoadMsg('Wczytano postać z serwera.');
+    } catch (e) {
+      setLoadMsg('Brak zapisanej postaci na serwerze lub błąd wczytywania.');
+    } finally {
+      setLoadBusy(false);
+      setLoadConfirmOpen(false);
+      setTimeout(() => setLoadMsg(''), 4000);
+    }
+  }
 
   useEffect(() => {
     if (!serverUrl || !player.onlineNick) { setStatus('disconnected'); return undefined; }
@@ -4721,6 +4891,64 @@ function OnlineScreen({ player, onUpdateConfig }) {
           <p style={{ marginTop: 6, fontSize: 10, color: status === 'ok' ? '#7fbf6a' : status === 'error' ? '#e05a4a' : '#a89fb5' }}>
             {status === 'ok' ? '● Połączono' : status === 'error' ? '● Serwer niedostępny' : '● Łączenie…'}
           </p>
+        )}
+      </div>
+
+      <SectionTitle><Lock size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />Konto — zapis postaci na serwerze</SectionTitle>
+      <p style={{ color: '#a89fb5', fontSize: 11, marginBottom: 10 }}>
+        Załóż prawdziwe konto, żeby zapisać postać (poziom, sprzęt, złoto) na serwerze i wczytać ją potem na dowolnym urządzeniu. To wciąż mała, kolezeńska instancja — nie ma odzyskiwania hasła przez e-mail. Nie używaj hasła, którego używasz gdzie indziej.
+      </p>
+      <div style={{ background: '#241f30', borderRadius: 6, padding: 10, marginBottom: 14 }}>
+        {!player.accountToken ? (
+          <>
+            {!serverUrl && (
+              <p style={{ color: '#e8c468', fontSize: 10, marginBottom: 8 }}>Najpierw podaj adres serwera powyżej i kliknij „Połącz”.</p>
+            )}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <PixelButton onClick={() => { setAuthTab('login'); setAuthError(''); }} color={authTab === 'login' ? '#4a90d9' : '#4a4258'} style={{ flex: 1 }}>Zaloguj</PixelButton>
+              <PixelButton onClick={() => { setAuthTab('register'); setAuthError(''); }} color={authTab === 'register' ? '#4a90d9' : '#4a4258'} style={{ flex: 1 }}>Zarejestruj</PixelButton>
+            </div>
+            <label style={{ color: '#c9c0d4', fontSize: 10, display: 'block', marginBottom: 3 }}>Nazwa użytkownika</label>
+            <input value={authUsername} onChange={(e) => setAuthUsername(e.target.value)} maxLength={20} placeholder="np. Bohater123" style={{ ...inputStyle, marginBottom: 8 }} />
+            <label style={{ color: '#c9c0d4', fontSize: 10, display: 'block', marginBottom: 3 }}>Hasło</label>
+            <input type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} maxLength={200} placeholder="hasło" style={{ ...inputStyle, marginBottom: 8 }} />
+            <PixelButton
+              onClick={authTab === 'login' ? handleLogin : handleRegister}
+              disabled={authBusy}
+              color="#7fbf6a"
+              style={{ width: '100%' }}
+            >
+              {authBusy ? 'Chwila…' : authTab === 'login' ? 'Zaloguj się' : 'Załóż konto'}
+            </PixelButton>
+            {authError && <p style={{ marginTop: 6, fontSize: 10, color: '#e05a4a' }}>{authError}</p>}
+          </>
+        ) : (
+          <>
+            <p style={{ color: '#7fbf6a', fontSize: 11, marginBottom: 8 }}>Zalogowano jako: <strong>{player.accountUsername}</strong></p>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+              <PixelButton onClick={handleManualSave} color="#4a90d9" style={{ flex: 1 }}>Zapisz postać na serwerze</PixelButton>
+              <PixelButton onClick={() => setLoadConfirmOpen(true)} color="#e8853d" style={{ flex: 1 }}>Wczytaj postać z serwera</PixelButton>
+            </div>
+            <PixelButton onClick={onLogoutAccount} color="#4a4258" style={{ width: '100%' }}>Wyloguj</PixelButton>
+            {accountSaveStatus === 'saving' && <p style={{ marginTop: 6, fontSize: 10, color: '#a89fb5' }}>Zapisywanie na serwerze…</p>}
+            {accountSaveStatus === 'saved' && <p style={{ marginTop: 6, fontSize: 10, color: '#7fbf6a' }}>Zapisano na serwerze.</p>}
+            {accountSaveStatus === 'error' && <p style={{ marginTop: 6, fontSize: 10, color: '#e05a4a' }}>Błąd zapisu na serwerze.</p>}
+            {manualSaveMsg && <p style={{ marginTop: 6, fontSize: 10, color: manualSaveMsg.includes('Błąd') ? '#e05a4a' : '#7fbf6a' }}>{manualSaveMsg}</p>}
+            {loadMsg && <p style={{ marginTop: 6, fontSize: 10, color: loadMsg.includes('Brak') ? '#e05a4a' : '#7fbf6a' }}>{loadMsg}</p>}
+            {loadConfirmOpen && (
+              <div style={{ marginTop: 10, background: '#14111c', border: '2px solid #e05a4a', borderRadius: 6, padding: 10 }}>
+                <p style={{ color: '#e8dcc0', fontSize: 11, marginBottom: 8 }}>
+                  To nadpisze Twoją obecną postać w tej grze danymi z serwera. Kontynuować?
+                </p>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <PixelButton onClick={handleConfirmLoad} disabled={loadBusy} color="#e05a4a" style={{ flex: 1 }}>
+                    {loadBusy ? 'Wczytywanie…' : 'Tak, wczytaj'}
+                  </PixelButton>
+                  <PixelButton onClick={() => setLoadConfirmOpen(false)} color="#4a4258" style={{ flex: 1 }}>Anuluj</PixelButton>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
