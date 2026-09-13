@@ -2255,8 +2255,12 @@ function AstraliaRPG() {
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showSkillTree, showVademecum, screen]);
+    // CELOWO bez tablicy zależności: tryMove/playerAttack/useSkill/autoBattle/itp.
+    // to zwykłe domknięcia nad `pos`/`battle`/`inDungeon`/itd. (dokładnie jak przy
+    // wywołaniu z onClick w JSX), więc nasłuch musi być odświeżany co render, by
+    // nie działać na nieaktualnym stanie (np. ruch "zamrożony" na starej pozycji).
+    // Podpięcie/odpięcie jednego globalnego listenera co render jest tanie.
+  });
 
   function resetGame() {
     clearSaveData();
