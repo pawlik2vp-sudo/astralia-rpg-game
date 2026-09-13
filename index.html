@@ -71,6 +71,13 @@
 </script>
 
 <script type="text/babel" data-presets="react">
+import React, { useState, useEffect, useRef } from 'react';
+import * as Tone from 'tone';
+import {
+  Sword, Shield, Package, Store, Heart, Zap, Coins, Hammer,
+  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X, User, Map as MapIcon, Footprints, RotateCcw, BookOpen,
+  Volume2, VolumeX, Globe, Send, Lock,
+} from 'lucide-react';
 
 /* ---------------------------------------------------------
    SOUND — lightweight 8-bit style SFX synthesized on the fly
@@ -134,11 +141,12 @@ const sound = {
    Each sprite is a set of text rows + a legend mapping
    characters to colors. '.' is always transparent.
 --------------------------------------------------------- */
-function PixelSprite({ sprite, size = 6, colorOverride }) {
+function PixelSprite({ sprite, size = 6, colorOverride, className }) {
   const legend = colorOverride ? { ...sprite.legend, ...colorOverride } : sprite.legend;
   const cols = sprite.rows[0].length;
   return (
     <div
+      className={className}
       style={{
         display: 'grid',
         gridTemplateColumns: `repeat(${cols}, ${size}px)`,
@@ -614,7 +622,9 @@ function ItemIcon({ kind, tier = 0, size = 4, colorOverride }) {
 const RARITY_ORDER = ['common', 'excellent', 'relic', 'mythic', 'artifact', 'astral'];
 const RARITY_LABELS = { common: 'Pospolity', excellent: 'Unikatowy', relic: 'Heroiczny', mythic: 'Legendarny', artifact: 'Artefakt', astral: 'Astralny' };
 const RARITY_COLORS = { common: '#9a9488', excellent: '#5fa85f', relic: '#4a90d9', mythic: '#a566d9', artifact: '#d99a3d', astral: '#4df0ff' };
-const RARITY_NEEDS_ID = { common: false, excellent: false, relic: true, mythic: true, artifact: true, astral: true };
+// Na prośbę gracza: identyfikacja dotyczy TYLKO najwyższej rangi (Astralny) —
+// pozostałe rzadkości (nawet Legendarny/Artefakt) są od razu w pełni widoczne.
+const RARITY_NEEDS_ID = { common: false, excellent: false, relic: false, mythic: false, artifact: false, astral: true };
 const RARITY_BINDS = { common: false, excellent: false, relic: false, mythic: true, artifact: true, astral: true };
 const RARITY_SELL_BASE = { common: 3, excellent: 8, relic: 18, mythic: 40, artifact: 90, astral: 200 };
 
@@ -1275,18 +1285,32 @@ const RESPONSIVE_SHELL_CSS = `
     gap: 0;
   }
   .side-panel { display: none; }
+  .map-sprite, .battle-sprite { transition: none; }
   @media (min-width: 900px) {
     .app-shell { max-width: 640px; height: min(840px, 92vh); }
   }
   @media (min-width: 1180px) {
-    .app-shell { max-width: 760px; }
+    .app-shell { max-width: 820px; height: min(880px, 94vh); }
     .page-wrap { gap: 16px; }
     .side-panel {
       display: flex; flex-direction: column; width: 260px;
-      height: min(840px, 92vh); background: radial-gradient(circle at 50% -10%, #2c2545 0%, #1a1626 55%, #120e1c 100%);
+      height: min(880px, 94vh); background: radial-gradient(circle at 50% -10%, #2c2545 0%, #1a1626 55%, #120e1c 100%);
       border-radius: 10px; border: 3px solid #241f1a; padding: 14px; box-sizing: border-box;
       color: #c9c0d4; overflow-y: auto; font-size: 11px;
     }
+    .map-sprite { transform: scale(1.15); }
+    .battle-sprite { transform: scale(1.15); }
+  }
+  /* Prawdziwy "pełny ekran" na dużych desktopach (jak klient Margonem w oknie
+     przeglądarki) — rama wypełnia niemal cały widoczny obszar zamiast być małą
+     "wizytówką" na środku strony. */
+  @media (min-width: 1440px) {
+    .app-shell { max-width: min(1180px, 78vw); height: min(960px, 94vh); }
+    .side-panel {
+      width: 320px; height: min(960px, 94vh); font-size: 12px; padding: 18px;
+    }
+    .map-sprite { transform: scale(1.35); }
+    .battle-sprite { transform: scale(1.3); }
   }
   @media (orientation: landscape) and (max-height: 520px) {
     .app-shell { max-width: min(820px, 96vw); height: 94vh; max-height: 94vh; }
@@ -1898,7 +1922,7 @@ function clearSaveData() {
 }
 
 
-function AstraliaRPG() {
+export default function AstraliaRPG() {
   const [player, setPlayer] = useState(INITIAL_PLAYER);
   const [pos, setPos] = useState(INITIAL_POS);
   const [area, setArea] = useState('area1');
@@ -1918,26 +1942,48 @@ function AstraliaRPG() {
   const [soundOn, setSoundOn] = useState(true);
   const [showVademecum, setShowVademecum] = useState(false);
   const [showSkillTree, setShowSkillTree] = useState(false);
-  const [pendingLootOverflow, setPendingLootOverflow] = useState([]);
+  // Okno Łupu (jak w Margonem): po walce gracz SAM wybiera co zabrać —
+  // nic nie trafia do torby automatycznie. Zastępuje starą "siatkę
+  // bezpieczeństwa" przy pełnej torbie, bo teraz zawsze jest wybór.
+  const [lootWindow, setLootWindow] = useState(null); // { enemyName, items: [...] } | null
 
-  useEffect(() => {
-    if (pendingLootOverflow.length === 0) return;
-    if ((player.inventoryItems || []).length < INVENTORY_MAX_SLOTS) {
-      claimPendingLoot();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player.inventoryItems, pendingLootOverflow.length]);
-
-  function claimPendingLoot() {
-    setPlayer((prev) => {
-      const spaceLeft = Math.max(0, INVENTORY_MAX_SLOTS - (prev.inventoryItems || []).length);
-      if (spaceLeft <= 0) return prev;
-      const toClaim = pendingLootOverflow.slice(0, spaceLeft);
-      if (toClaim.length === 0) return prev;
-      setPendingLootOverflow((rest) => rest.slice(toClaim.length));
-      return { ...prev, inventoryItems: [...(prev.inventoryItems || []), ...toClaim] };
+  function removeLootWindowItem(id) {
+    setLootWindow((prev) => {
+      if (!prev) return prev;
+      const remaining = prev.items.filter((i) => i.id !== id);
+      return remaining.length ? { ...prev, items: remaining } : null;
     });
   }
+  function takeLootWindowItem(item) {
+    const p = playerRef.current;
+    if ((p.inventoryItems || []).length >= INVENTORY_MAX_SLOTS) { showToast('Brak miejsca w torbie!'); return; }
+    sound.coin();
+    setPlayer((prev) => ({ ...prev, inventoryItems: [...(prev.inventoryItems || []), item] }));
+    removeLootWindowItem(item.id);
+  }
+  function leaveLootWindowItem(item) {
+    removeLootWindowItem(item.id);
+  }
+  function equipFromLootWindow(item) {
+    if (equipLootItem(item)) removeLootWindowItem(item.id);
+  }
+  function sellFromLootWindow(item) {
+    sellLootItem(item);
+    removeLootWindowItem(item.id);
+  }
+  function takeAllLootWindow() {
+    const p = playerRef.current;
+    if (!lootWindow || lootWindow.items.length === 0) return;
+    const spaceLeft = Math.max(0, INVENTORY_MAX_SLOTS - (p.inventoryItems || []).length);
+    if (spaceLeft <= 0) { showToast('Brak miejsca w torbie!'); return; }
+    const toTake = lootWindow.items.slice(0, spaceLeft);
+    const left = lootWindow.items.slice(spaceLeft);
+    sound.coin();
+    setPlayer((prev) => ({ ...prev, inventoryItems: [...(prev.inventoryItems || []), ...toTake] }));
+    if (left.length) { showToast(`Zabrano ${toTake.length}, brak miejsca na resztę!`); setLootWindow((prev) => (prev ? { ...prev, items: left } : prev)); }
+    else { setLootWindow(null); }
+  }
+  function closeLootWindow() { setLootWindow(null); }
 
   useEffect(() => { sound.enabled = soundOn; }, [soundOn]);
 
@@ -2222,6 +2268,13 @@ function AstraliaRPG() {
       if (key === 'Escape') {
         if (showSkillTree) { setShowSkillTree(false); return; }
         if (showVademecum) { setShowVademecum(false); return; }
+        if (lootWindow) { closeLootWindow(); return; }
+        return;
+      }
+
+      // Okno Łupu: Enter/Spacja = Weź wszystko (jak F przy walce — szybka akcja).
+      if (lootWindow) {
+        if (key === ' ' || key === 'Enter') { e.preventDefault(); takeAllLootWindow(); }
         return;
       }
 
@@ -2741,7 +2794,7 @@ function AstraliaRPG() {
     const awardedXp = xpLocked ? 0 : Math.round(enemy.xp * xpMult);
     const awardedGold = Math.round(enemy.gold * xpMult);
     const victoryLog = [...logSoFar, `Pokonałeś: ${enemy.name}! +${awardedXp} PD, +${awardedGold} złota.${xpLocked ? ' (Blokada PD)' : xpMult < 1 ? ' (kara za poziom)' : ''}`];
-    lootItems.forEach((item) => victoryLog.push(`Zdobywasz: ${item.name} (${RARITY_LABELS[item.rarity]})!`));
+    lootItems.forEach((item) => victoryLog.push(`Wypada: ${item.name} (${RARITY_LABELS[item.rarity]}) — odbierz w Oknie Łupu!`));
     if (gotScroll) victoryLog.push('Zdobywasz: Zwój Identyfikacji!');
     if (gotGem) victoryLog.push(`Zdobywasz: ${GEM_TYPES[gemKey].name}!`);
     if (gotMeat) victoryLog.push('Zdobywasz: Pieczone Mięso!');
@@ -2802,18 +2855,9 @@ function AstraliaRPG() {
       const newBestiary = bKey
         ? { ...prev.bestiary, [bKey]: { ...prev.bestiary[bKey], seen: true, defeated: true, elite: (prev.bestiary[bKey]?.elite) || !!enemy.isElite, kills: ((prev.bestiary[bKey] && prev.bestiary[bKey].kills) || 0) + 1 } }
         : prev.bestiary;
-      const isSpecialEncounter = !!(enemy.isBoss || enemy.isHero || enemy.rank === 'nemezis');
-      const spaceLeft = Math.max(0, INVENTORY_MAX_SLOTS - (prev.inventoryItems || []).length);
-      const acceptedLoot = lootItems.slice(0, spaceLeft);
-      const overflowLoot = lootItems.slice(spaceLeft);
-      if (overflowLoot.length) {
-        if (isSpecialEncounter) {
-          setTimeout(() => setPendingLootOverflow(overflowLoot), 400);
-        } else {
-          setTimeout(() => showToast('Brak miejsca w torbie!'), 400);
-        }
-      }
-      const newInventoryItems = acceptedLoot.length ? [...(prev.inventoryItems || []), ...acceptedLoot] : (prev.inventoryItems || []);
+      // Przedmioty ekwipunku NIE trafiają już automatycznie do torby —
+      // czekają w Oknie Łupu, gdzie gracz sam decyduje co zabrać (patrz
+      // setLootWindow poniżej), więc tutaj nic z inventoryItems nie zmieniamy.
       const newIdScrolls = gotScroll ? (prev.idScrolls || 0) + 1 : prev.idScrolls;
       const isManaClass = (CLASSES[prev.charClass] || CLASSES.warrior).resourceType === 'mana';
       let leveled = false;
@@ -2824,9 +2868,15 @@ function AstraliaRPG() {
       }
       const newUnspentPoints = (prev.unspentPoints || 0) + levelsGained * 4;
       const newUnspentSkillPoints = (prev.unspentSkillPoints || 0) + levelsGained;
-      return { ...prev, xp, xpNext, level, maxHp, maxMp, atk, def, gold, hp: leveled ? maxHp + getAffixBonusTotal(prev).hp + getSkillTreeBonus(prev).hp : hp, mp: leveled ? maxMp + getAffixBonusTotal(prev).mp + getSkillTreeBonus(prev).mp : mp, unspentPoints: newUnspentPoints, unspentSkillPoints: newUnspentSkillPoints, materials: newMaterials, food: newFood, bossKills: newBossKills, bossKills2: newBossKills2, bossKills3: newBossKills3, titanKills: newTitanKills, totalKills: newTotalKills, eliteKills: newEliteKills, dailyProgress: newDailyProgress, bestiary: newBestiary, inventoryItems: newInventoryItems, idScrolls: newIdScrolls };
+      return { ...prev, xp, xpNext, level, maxHp, maxMp, atk, def, gold, hp: leveled ? maxHp + getAffixBonusTotal(prev).hp + getSkillTreeBonus(prev).hp : hp, mp: leveled ? maxMp + getAffixBonusTotal(prev).mp + getSkillTreeBonus(prev).mp : mp, unspentPoints: newUnspentPoints, unspentSkillPoints: newUnspentSkillPoints, materials: newMaterials, food: newFood, bossKills: newBossKills, bossKills2: newBossKills2, bossKills3: newBossKills3, titanKills: newTitanKills, totalKills: newTotalKills, eliteKills: newEliteKills, dailyProgress: newDailyProgress, bestiary: newBestiary, idScrolls: newIdScrolls };
     });
-    setTimeout(() => setBattle(null), 1700);
+    setTimeout(() => {
+      setBattle(null);
+      // Okno Łupu (jak w Margonem): pokazujemy je dopiero po zamknięciu ekranu
+      // walki, żeby gracz najpierw zobaczył wynik starcia, a potem spokojnie
+      // zdecydował co zabrać z tego, co wypadło.
+      if (lootItems.length) setLootWindow({ enemyName: enemy.name, items: lootItems });
+    }, 1700);
   }
 
   function handleDefeat() {
@@ -3174,27 +3224,30 @@ function AstraliaRPG() {
     showToast(`Kupiono: ${r.name}!`);
   }
   function equipLootItem(item) {
+    // Zwraca true/false (sukces/porażka) — używane m.in. przez Okno Łupu,
+    // które musi wiedzieć czy zakładanie się powiodło, by zdjąć przedmiot
+    // z listy tylko wtedy, gdy naprawdę trafił na gracza.
     if (RARITY_NEEDS_ID[item.rarity] && !item.identified) {
       showToast('Musisz najpierw zbadać ten przedmiot!');
-      return;
+      return false;
     }
     const p = playerRef.current;
     if (p.level < (item.reqLvl || 1)) {
       showToast(`Wymagany poziom: ${item.reqLvl}!`);
-      return;
+      return false;
     }
     if (item.rarity === 'astral') {
       const slots = ['weapon', 'armor', 'helmet', 'boots', 'ring'];
       const alreadyAstral = slots.some((s) => s !== item.kind && p[`${s}Rarity`] === 'astral');
       if (alreadyAstral) {
         showToast('Możesz założyć tylko 1 przedmiot Astralny naraz!');
-        return;
+        return false;
       }
     }
     const oldItemData = p[`${item.kind}ItemData`];
     if (oldItemData && (p.inventoryItems || []).length >= INVENTORY_MAX_SLOTS) {
       showToast('Brak miejsca w torbie na poprzedni przedmiot!');
-      return;
+      return false;
     }
     setPlayer((prev) => {
       let invItems = (prev.inventoryItems || []).filter((i) => i.id !== item.id);
@@ -3218,6 +3271,7 @@ function AstraliaRPG() {
       return next;
     });
     showToast(`Założono: ${item.name}!`);
+    return true;
   }
   function identifyLootItem(item) {
     if (player.idScrolls <= 0) { showToast('Potrzebujesz Zwoju Identyfikacji!'); return; }
@@ -3657,27 +3711,36 @@ function AstraliaRPG() {
       {showVademecum && <VademecumModal onClose={() => setShowVademecum(false)} />}
       {showSkillTree && <SkillTreeModal player={player} onClose={() => setShowSkillTree(false)} onLearn={learnSkillRank} onRespec={respecSkillTree} />}
 
-      {/* FULL BAG SAFETY NET — valuable loot from Nemezis/Hero/Boss waits here until space frees up */}
-      {pendingLootOverflow.length > 0 && (
+      {/* OKNO ŁUPU (jak w Margonem) — po walce gracz sam wybiera co zabrać z
+          przedmiotów, które wypadły; można od razu założyć/sprzedać/zostawić. */}
+      {lootWindow && (
         <div style={{
-          position: 'absolute', inset: 0, background: 'rgba(10,8,16,0.9)', zIndex: 30,
+          position: 'absolute', inset: 0, background: 'rgba(10,8,16,0.92)', zIndex: 30,
           display: 'flex', flexDirection: 'column', padding: 16, overflowY: 'auto',
         }}>
-          <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 12, color: '#e8c468', marginBottom: 8, textAlign: 'center' }}>
-            Torba jest pełna!
+          <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 12, color: '#e8c468', marginBottom: 4, textAlign: 'center' }}>
+            Łup: {lootWindow.enemyName}
           </div>
-          <p style={{ color: '#c9c0d4', fontSize: 11, marginBottom: 10, textAlign: 'center' }}>
-            Cenny łup czeka: <span style={{ color: RARITY_COLORS[pendingLootOverflow[0].rarity] }}>{pendingLootOverflow[0].name}</span> ({RARITY_LABELS[pendingLootOverflow[0].rarity]})
-            {pendingLootOverflow.length > 1 && ` i ${pendingLootOverflow.length - 1} więcej`}. Sprzedaj coś z torby, by zrobić miejsce.
+          <p style={{ color: '#8a8298', fontSize: 10, marginBottom: 10, textAlign: 'center' }}>
+            Wybierz co zabrać — reszta zostanie utracona po zamknięciu okna.
           </p>
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {(player.inventoryItems || []).map((item) => (
-              <LootItemRow key={item.id} item={item} player={player} onEquip={equipLootItem} onIdentify={identifyLootItem} onSocket={socketLootItem} onSell={sellLootItem} />
-            ))}
+            {lootWindow.items.length === 0 ? (
+              <p style={{ color: '#6b6478', fontSize: 11, textAlign: 'center', marginTop: 20 }}>Wszystko odebrane!</p>
+            ) : (
+              [...lootWindow.items].sort((a, b) => RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity)).map((item) => (
+                <LootWindowRow key={item.id} item={item} player={player} onTake={takeLootWindowItem} onLeave={leaveLootWindowItem} onEquip={equipFromLootWindow} onSell={sellFromLootWindow} />
+              ))
+            )}
           </div>
-          <PixelButton onClick={() => setPendingLootOverflow([])} color="#8a7f6b" style={{ marginTop: 10 }}>
-            Porzuć łup i zamknij
-          </PixelButton>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <PixelButton onClick={takeAllLootWindow} disabled={lootWindow.items.length === 0} color="#5fa85f" style={{ flex: 1 }}>
+              Weź wszystko (Enter)
+            </PixelButton>
+            <PixelButton onClick={closeLootWindow} color="#8a7f6b" style={{ flex: 1 }}>
+              Zamknij (Esc)
+            </PixelButton>
+          </div>
         </div>
       )}
 
@@ -3982,20 +4045,20 @@ function MapScene({ pos, onMove, area, spawns, npc, heroAvailable, onRest, hpFul
                 }}
               >
                 {isPlayer ? (
-                  <PixelSprite sprite={PLAYER_SPRITE} size={inDungeon ? 3.4 : 2.4} />
+                  <PixelSprite sprite={PLAYER_SPRITE} size={inDungeon ? 3.4 : 2.4}  className="map-sprite" />
                 ) : isNpc ? (
                   <div style={{ filter: 'drop-shadow(0 0 4px #e8dcc0)', position: 'relative' }}>
-                    <PixelSprite sprite={TRAVELER_SPRITE} size={1.9} />
+                    <PixelSprite sprite={TRAVELER_SPRITE} size={1.9}  className="map-sprite" />
                     {!npc.met && <span style={{ position: 'absolute', top: -6, right: -4, fontSize: 10, color: '#e8c468' }}>!</span>}
                   </div>
                 ) : isHero ? (
                   <div style={{ filter: heroAvailable ? `drop-shadow(0 0 5px ${heroColor})` : 'none', position: 'relative' }}>
-                    <PixelSprite sprite={heroSprite} size={2.1} />
+                    <PixelSprite sprite={heroSprite} size={2.1}  className="map-sprite" />
                     <span style={{ position: 'absolute', top: -6, right: -6, fontSize: 9, color: heroColor }}>♛</span>
                   </div>
                 ) : spawn ? (
                   <div style={{ filter: `drop-shadow(0 0 4px ${rankColor})`, position: 'relative' }}>
-                    <PixelSprite sprite={spawn.monster.sprite} size={inDungeon ? 2.8 : 1.9} colorOverride={spawn.monster.colorOverride} />
+                    <PixelSprite sprite={spawn.monster.sprite} size={inDungeon ? 2.8 : 1.9} colorOverride={spawn.monster.colorOverride}  className="map-sprite" />
                     {RANKS[spawn.monster.rank]?.symbol && (
                       <span style={{ position: 'absolute', top: -6, right: -4, fontSize: 8, color: rankColor }}>{RANKS[spawn.monster.rank].symbol}</span>
                     )}
@@ -4007,16 +4070,16 @@ function MapScene({ pos, onMove, area, spawns, npc, heroAvailable, onRest, hpFul
                 ) : tile === 'entrance' ? <span style={{ fontSize: 16 }}>🚪</span>
                 : tile === 'trap' ? <span style={{ fontSize: 15 }}>⚠️</span>
                 : tile === 'chest' ? <span style={{ fontSize: 16, opacity: (inDungeon && dungeonChestOpened) ? 0.35 : 1 }}>🎁</span>
-                : tile === 'forest' ? <PixelSprite sprite={TREE_SPRITE} size={2.2} />
-                : tile === 'town' ? <PixelSprite sprite={HOUSE_SPRITE} size={2.2} />
-                : tile === 'cave' ? <PixelSprite sprite={CAVE_SPRITE} size={2.2} />
-                : tile === 'lair' ? <PixelSprite sprite={CAVE_SPRITE} size={2.2} />
-                : tile === 'lair3' ? <PixelSprite sprite={CAVE_SPRITE} size={2.2} />
-                : (tile === 'portal' || tile === 'portal_back') ? <PixelSprite sprite={PORTAL_SPRITE} size={2.2} />
-                : tile === 'ruins' ? <PixelSprite sprite={RUIN_SPRITE} size={2.2} />
-                : tile === 'rock' ? <PixelSprite sprite={ROCK_SPRITE} size={2.2} />
-                : tile === 'crystal' ? <PixelSprite sprite={CRYSTAL_SPRITE} size={2.2} />
-                : tile === 'chasm' ? <PixelSprite sprite={CHASM_SPRITE} size={2.2} />
+                : tile === 'forest' ? <PixelSprite sprite={TREE_SPRITE} size={2.2}  className="map-sprite" />
+                : tile === 'town' ? <PixelSprite sprite={HOUSE_SPRITE} size={2.2}  className="map-sprite" />
+                : tile === 'cave' ? <PixelSprite sprite={CAVE_SPRITE} size={2.2}  className="map-sprite" />
+                : tile === 'lair' ? <PixelSprite sprite={CAVE_SPRITE} size={2.2}  className="map-sprite" />
+                : tile === 'lair3' ? <PixelSprite sprite={CAVE_SPRITE} size={2.2}  className="map-sprite" />
+                : (tile === 'portal' || tile === 'portal_back') ? <PixelSprite sprite={PORTAL_SPRITE} size={2.2}  className="map-sprite" />
+                : tile === 'ruins' ? <PixelSprite sprite={RUIN_SPRITE} size={2.2}  className="map-sprite" />
+                : tile === 'rock' ? <PixelSprite sprite={ROCK_SPRITE} size={2.2}  className="map-sprite" />
+                : tile === 'crystal' ? <PixelSprite sprite={CRYSTAL_SPRITE} size={2.2}  className="map-sprite" />
+                : tile === 'chasm' ? <PixelSprite sprite={CHASM_SPRITE} size={2.2}  className="map-sprite" />
                 : tile === 'titan_altar1' ? <span style={{ fontSize: 18, filter: 'drop-shadow(0 0 4px #e05a2a)' }}>🔥</span>
                 : tile === 'titan_altar2' ? <span style={{ fontSize: 18, filter: 'drop-shadow(0 0 4px #a566d9)' }}>💀</span>
                 : null}
@@ -4154,7 +4217,7 @@ function BattleScene({ battle, player, onAttack, onSkill, onSkill2, onFlee, onAu
           display: 'flex', justifyContent: 'center', marginBottom: 8,
           filter: rankColor ? `drop-shadow(0 0 8px ${rankColor})` : 'none',
         }}>
-          <PixelSprite sprite={enemy.sprite} size={enemy.isBoss ? 7 : 6} colorOverride={enemy.colorOverride} />
+          <PixelSprite sprite={enemy.sprite} size={enemy.isBoss ? 7 : 6} colorOverride={enemy.colorOverride} className="battle-sprite" />
         </div>
         <div style={{
           background: '#3a1f1a', borderRadius: 3, height: 8, overflow: 'hidden', maxWidth: 200, margin: '0 auto',
@@ -4509,6 +4572,7 @@ function VademecumModal({ onClose }) {
           <p><strong>F</strong> — Szybka Walka (Auto) w trakcie walki.</p>
           <p><strong>Spacja / Enter</strong> — Atak. <strong>Q</strong> — pierwsza umiejętność. <strong>E</strong> — druga umiejętność.</p>
           <p><strong>1 / 2 / 3</strong> — w walce: mała mikstura / duża mikstura / mikstura many. Poza walką: szybkie przełączanie zakładek (Mapa/Postać/Ekwipunek/Bestie/Sklep/Online).</p>
+          <p><strong>W Oknie Łupu: Enter / Spacja</strong> — Weź wszystko. <strong>Esc</strong> — zamknij (reszta przepada).</p>
           <p><strong>Esc</strong> — zamyka otwarte okno (np. to Vademecum czy Drzewko Umiejętności).</p>
         </VademecumSection>
 
@@ -4534,6 +4598,11 @@ function VademecumModal({ onClose }) {
           </p>
         </VademecumSection>
 
+        <VademecumSection title="Okno Łupu">
+          <p>Po każdej zwycięskiej walce, w której coś wypadło, otwiera się Okno Łupu. Dla każdego przedmiotu widać od razu porównanie z tym, co masz obecnie założone (zielony/czerwony wskaźnik).</p>
+          <p style={{ marginTop: 6 }}>Do wyboru: <strong>Do torby</strong> (zabierz na później), <strong>Załóż</strong> (od razu na siebie, bez zajmowania miejsca w torbie), <strong>Sprzedaj</strong> (od razu za złoto) albo <strong>Zostaw</strong> (porzuć). Zamknięcie okna bez decyzji porzuca wszystko, co zostało.</p>
+        </VademecumSection>
+
         <VademecumSection title="Rzadkości ekwipunku">
           {RARITY_ORDER.map((r) => (
             <div key={r} style={{ color: RARITY_COLORS[r], fontWeight: 700, marginBottom: 2 }}>
@@ -4542,7 +4611,7 @@ function VademecumModal({ onClose }) {
               {RARITY_BINDS[r] && ' • wiązany po założeniu'}
             </div>
           ))}
-          <p style={{ marginTop: 6 }}>Możesz mieć założony maksymalnie 1 przedmiot rzadkości Astralnej naraz. Przedmioty {RARITY_LABELS.relic}+ mają gniazda na klejnoty.</p>
+          <p style={{ marginTop: 6 }}>Możesz mieć założony maksymalnie 1 przedmiot rzadkości Astralnej naraz. Przedmioty {RARITY_LABELS.relic}+ mają gniazda na klejnoty. Identyfikacji wymagają tylko przedmioty najwyższej rangi (Astralne).</p>
         </VademecumSection>
 
         <VademecumSection title="Klejnoty i afiksy">
@@ -4904,6 +4973,70 @@ function LootItemRow({ item, player, onEquip, onIdentify, onSocket, onSell }) {
         <PixelButton onClick={() => onSell(item)} color="#8a7f6b" style={{ padding: '5px 8px', fontSize: 8, flex: 1 }}>
           Sprzedaj ({sellValue}z)
         </PixelButton>
+      </div>
+    </div>
+  );
+}
+
+/* Wiersz w Oknie Łupu (jeszcze przed trafieniem do torby): pokazuje ten sam
+   porównawczy delta-wskaźnik co LootItemRow, ale z akcjami dopasowanymi do
+   przedmiotu leżącego "na ziemi" — Załóż/Sprzedaj działają bez odkładania
+   go najpierw do plecaka (equipLootItem/sellLootItem i tak tylko usuwają go
+   z inventoryItems, co jest no-opem gdy go tam jeszcze nie ma). */
+function LootWindowRow({ item, player, onTake, onLeave, onEquip, onSell }) {
+  const color = RARITY_COLORS[item.rarity];
+  const charClass = player.charClass;
+  const displayKind = item.kind === 'weapon' ? `weapon-${charClass}` : item.kind;
+  const needsId = RARITY_NEEDS_ID[item.rarity] && !item.identified;
+  const statLabel = item.kind === 'boots' ? `+${Math.round(item.bonus * 100)}% ucieczki`
+    : (item.kind === 'armor' || item.kind === 'helmet') ? `+${item.bonus} obr.`
+    : `+${item.bonus} atk`;
+  const equippedBonus = getEquippedBonus(player, item.kind);
+  const delta = Math.round((item.bonus - equippedBonus) * 100) / 100;
+  const deltaText = item.kind === 'boots' ? `${delta >= 0 ? '+' : ''}${Math.round(delta * 100)}%` : `${delta >= 0 ? '+' : ''}${delta}`;
+  const deltaColor = delta > 0 ? '#5fa85f' : delta < 0 ? '#e05a4a' : '#8a8298';
+  const sellValue = lootSellValue(item);
+  const underLevel = player.level < (item.reqLvl || 1);
+  const isPrestige = ['mythic', 'artifact', 'astral'].includes(item.rarity);
+  return (
+    <div style={{
+      background: '#241f30', padding: 8, borderRadius: 6, marginBottom: 6,
+      borderTop: `2px solid ${color}`, borderLeft: `2px solid ${color}`, borderRight: `2px solid ${color}99`, borderBottom: `2px solid ${color}99`,
+      boxShadow: isPrestige ? `0 0 10px ${color}66, inset 0 0 14px ${color}22` : 'none',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <ItemIcon kind={displayKind} size={3} colorOverride={color} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ color, fontSize: 12, fontWeight: 600 }}>{needsId ? 'Nieznany Przedmiot' : item.name}</div>
+          <div style={{ color: '#a89fb5', fontSize: 10 }}>
+            {RARITY_LABELS[item.rarity]}{!needsId && ` • ${statLabel}`}
+            {!needsId && <span style={{ color: deltaColor, marginLeft: 6, fontWeight: 700 }}>({deltaText})</span>}
+          </div>
+          {!needsId && (item.affix || item.affix2) && (
+            <div style={{ color: '#c9a8e8', fontSize: 9, marginTop: 2 }}>
+              {[item.affix, item.affix2].filter(Boolean).map((a, i) => (
+                <span key={i}>{i > 0 && ' • '}+{a.value} {AFFIX_STAT_LABELS[a.statType]}</span>
+              ))}
+            </div>
+          )}
+          {!needsId && item.setName && (
+            <div style={{ color: '#e8c468', fontSize: 9, marginTop: 2 }}>{item.setName}</div>
+          )}
+          {needsId && (
+            <div style={{ color: '#8a5aa8', fontSize: 9, marginTop: 2 }}>Wymaga identyfikacji (Zwój) po zabraniu do torby</div>
+          )}
+          {underLevel && (
+            <div style={{ color: '#e05a4a', fontSize: 9, marginTop: 2, fontWeight: 700 }}>Wymagany poziom: {item.reqLvl}</div>
+          )}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+        <PixelButton onClick={() => onTake(item)} color="#4a7c9e" style={{ padding: '5px 8px', fontSize: 8, flex: 1 }}>Do torby</PixelButton>
+        {!needsId && (
+          <PixelButton onClick={() => onEquip(item)} disabled={underLevel} color="#e8853d" style={{ padding: '5px 8px', fontSize: 8, flex: 1 }}>Załóż</PixelButton>
+        )}
+        <PixelButton onClick={() => onSell(item)} color="#8a7f6b" style={{ padding: '5px 8px', fontSize: 8, flex: 1 }}>Sprzedaj ({sellValue}z)</PixelButton>
+        <PixelButton onClick={() => onLeave(item)} color="#5a4a4a" style={{ padding: '5px 8px', fontSize: 8, flex: 1 }}>Zostaw</PixelButton>
       </div>
     </div>
   );
