@@ -1026,37 +1026,67 @@ function rollLootDrops(rank, playerLevel, monsterSpawnLevel, richness, bypassPen
 /* ---------------------------------------------------------
    GAME DATA
 --------------------------------------------------------- */
+// Mapy 16x16 (dawniej 8x8) — górny-lewy kwadrat 8x8 to DOKŁADNIE stara mapa
+// (bez zmian: pozycje portalu, miasta, ołtarza, jaskini, INITIAL_POS i
+// AREA_ENTRY_POINT nadal trafiają w te same, sprawdzone kafelki), a nowe pola
+// dookoła to czysto dodatkowy teren (bez nowych kafelków blokujących ruch),
+// dzięki czemu istniejące zapisy graczy pozostają w 100% poprawne. Kamera w
+// MapScene pokazuje tylko okno 8x8 wokół gracza i podąża za nim.
 const MAP = [
-  ['grass', 'grass', 'forest', 'forest', 'portal', 'water', 'water', 'forest'],
-  ['grass', 'town', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest'],
-  ['forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass'],
-  ['grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass'],
-  ['grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest'],
-  ['forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass'],
-  ['grass', 'titan_altar1', 'forest', 'grass', 'grass', 'grass', 'forest', 'grass'],
-  ['forest', 'grass', 'grass', 'grass', 'forest', 'grass', 'grass', 'cave'],
+  ['grass', 'grass', 'forest', 'forest', 'portal', 'water', 'water', 'forest', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest'],
+  ['grass', 'town', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass'],
+  ['forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass'],
+  ['grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest'],
+  ['grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass'],
+  ['forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass'],
+  ['grass', 'titan_altar1', 'forest', 'grass', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest'],
+  ['forest', 'grass', 'grass', 'grass', 'forest', 'grass', 'grass', 'cave', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass'],
+  ['grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass'],
+  ['forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest'],
+  ['grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass'],
+  ['grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass'],
+  ['forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest'],
+  ['grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass'],
+  ['grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass'],
+  ['forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest', 'grass', 'grass', 'forest'],
 ];
 
 const MAP2 = [
-  ['portal_back', 'waste', 'ruins', 'waste', 'waste', 'rock', 'waste', 'portal'],
-  ['waste', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste'],
-  ['ruins', 'waste', 'waste', 'waste', 'waste', 'ruins', 'waste', 'waste'],
-  ['waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins'],
-  ['waste', 'waste', 'ruins', 'waste', 'waste', 'waste', 'ruins', 'waste'],
-  ['ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'waste', 'waste'],
-  ['waste', 'titan_altar2', 'waste', 'waste', 'ruins', 'waste', 'ruins', 'waste'],
-  ['ruins', 'waste', 'ruins', 'waste', 'waste', 'waste', 'waste', 'lair'],
+  ['portal_back', 'waste', 'ruins', 'waste', 'waste', 'rock', 'waste', 'portal', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins'],
+  ['waste', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste'],
+  ['ruins', 'waste', 'waste', 'waste', 'waste', 'ruins', 'waste', 'waste', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste'],
+  ['waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins'],
+  ['waste', 'waste', 'ruins', 'waste', 'waste', 'waste', 'ruins', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste'],
+  ['ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'waste', 'waste', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste'],
+  ['waste', 'titan_altar2', 'waste', 'waste', 'ruins', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins'],
+  ['ruins', 'waste', 'ruins', 'waste', 'waste', 'waste', 'waste', 'lair', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste'],
+  ['waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste'],
+  ['ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins'],
+  ['waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste'],
+  ['waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste'],
+  ['ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins'],
+  ['waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste'],
+  ['waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste'],
+  ['ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins', 'waste', 'waste', 'ruins'],
 ];
 
 const MAP3 = [
-  ['portal_back', 'snow', 'crystal', 'snow', 'snow', 'chasm', 'snow', 'crystal'],
-  ['snow', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow'],
-  ['crystal', 'snow', 'snow', 'snow', 'snow', 'crystal', 'snow', 'snow'],
-  ['snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal'],
-  ['snow', 'snow', 'crystal', 'snow', 'snow', 'snow', 'crystal', 'snow'],
-  ['crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'snow', 'snow'],
-  ['snow', 'snow', 'snow', 'snow', 'crystal', 'snow', 'crystal', 'snow'],
-  ['crystal', 'snow', 'crystal', 'snow', 'snow', 'snow', 'snow', 'lair3'],
+  ['portal_back', 'snow', 'crystal', 'snow', 'snow', 'chasm', 'snow', 'crystal', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal'],
+  ['snow', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow'],
+  ['crystal', 'snow', 'snow', 'snow', 'snow', 'crystal', 'snow', 'snow', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow'],
+  ['snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal'],
+  ['snow', 'snow', 'crystal', 'snow', 'snow', 'snow', 'crystal', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow'],
+  ['crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'snow', 'snow', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow'],
+  ['snow', 'snow', 'snow', 'snow', 'crystal', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal'],
+  ['crystal', 'snow', 'crystal', 'snow', 'snow', 'snow', 'snow', 'lair3', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow'],
+  ['snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow'],
+  ['crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal'],
+  ['snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow'],
+  ['snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow'],
+  ['crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal'],
+  ['snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow'],
+  ['snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow'],
+  ['crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal', 'snow', 'snow', 'crystal'],
 ];
 
 const TILE_COLORS = {
@@ -1226,6 +1256,42 @@ const DUNGEON_TILE_COLORS = {
 const DUNGEON_ENTRY_POS = { x: 0, y: 0 };
 const DUNGEON_GUARD_POS = [{ x: 2, y: 0 }, { x: 4, y: 2 }];
 const DUNGEON_BOSS_COOLDOWN_MOVES = 70;
+
+// Responsywna "ramka" aplikacji: na wąskim/pionowym ekranie (telefon) zachowuje
+// stare wymiary (420x700, jak dawniej); na szerokim ekranie (desktop) i w
+// orientacji poziomej na telefonie (mało wysokości, dużo szerokości) rama
+// robi się większa/szersza, dzięki czemu siatka mapy i widok walki realnie
+// zajmują więcej miejsca zamiast wyglądać jak mała "wizytówka" na środku ekranu.
+const RESPONSIVE_SHELL_CSS = `
+  .app-shell {
+    max-width: 420px;
+    height: 700px;
+    max-height: 92vh;
+  }
+  .page-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+  }
+  .side-panel { display: none; }
+  @media (min-width: 900px) {
+    .app-shell { max-width: 640px; height: min(840px, 92vh); }
+  }
+  @media (min-width: 1180px) {
+    .app-shell { max-width: 760px; }
+    .page-wrap { gap: 16px; }
+    .side-panel {
+      display: flex; flex-direction: column; width: 260px;
+      height: min(840px, 92vh); background: radial-gradient(circle at 50% -10%, #2c2545 0%, #1a1626 55%, #120e1c 100%);
+      border-radius: 10px; border: 3px solid #241f1a; padding: 14px; box-sizing: border-box;
+      color: #c9c0d4; overflow-y: auto; font-size: 11px;
+    }
+  }
+  @media (orientation: landscape) and (max-height: 520px) {
+    .app-shell { max-width: min(820px, 96vw); height: 94vh; max-height: 94vh; }
+  }
+`;
 
 function dungeonGuardTemplate(areaKey) {
   if (areaKey === 'area2') return MONSTER_TEMPLATES2.skeleton;
@@ -1636,7 +1702,10 @@ const SPAWNABLE_TILES = { area1: ['grass', 'forest'], area2: ['waste', 'ruins'],
 const AREA_ENTRY_POINT = { area1: { x: 1, y: 1 }, area2: { x: 1, y: 0 }, area3: { x: 1, y: 0 } };
 const SPAWN_CHANCE = 0.3;
 const RESPAWN_CHANCE_PER_MOVE = 0.15;
-const MAX_SPAWNS_PER_AREA = 14;
+// Mapy urosły z 8x8 do 16x16 (4x więcej pól) — limit podbity proporcjonalnie,
+// żeby gęstość potworów na polu została mniej więcej taka sama jak wcześniej
+// (to bezpośrednia konsekwencja powiększenia mapy, nie zgadywanie balansu).
+const MAX_SPAWNS_PER_AREA = 40;
 const NEMEZIS_SPAWN_CHANCE = 0.015;
 const NEMEZIS_WANDER_CHANCE = 0.2;
 
@@ -2137,6 +2206,58 @@ function AstraliaRPG() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player, pos, area, monsterSpawns, npcSpawns, heroRespawnAt, moveCount, inDungeon, dungeonSpawns, dungeonBossRespawnAt, overworldReturn, dungeonLayoutIdx, dungeonChestOpened, restCooldownAt, player.accountToken, player.onlineServerUrl]);
 
+  // Skróty klawiszowe (jak w Margonem: F = Szybka Walka). Nasłuch globalny,
+  // ale ignorujemy wpisywanie w polach tekstowych (czat, formularz logowania)
+  // oraz kombinacje z Ctrl/Cmd/Alt (żeby nie kolidować ze skrótami przeglądarki).
+  useEffect(() => {
+    function onKeyDown(e) {
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const key = e.key;
+      const lower = key.length === 1 ? key.toLowerCase() : key;
+
+      // Esc zawsze zamyka otwarte okno modalne, jeśli jakieś jest.
+      if (key === 'Escape') {
+        if (showSkillTree) { setShowSkillTree(false); return; }
+        if (showVademecum) { setShowVademecum(false); return; }
+        return;
+      }
+
+      // Gdy jakiekolwiek okno modalne jest otwarte, nie przetwarzamy dalej.
+      if (showSkillTree || showVademecum) return;
+
+      const b = battleRef.current;
+      if (b && !b.ended) {
+        // W trakcie walki, gdy jest tura gracza.
+        if (lower === 'f') { e.preventDefault(); autoBattle(); return; }
+        if (key === ' ' || key === 'Enter') { e.preventDefault(); playerAttack(); return; }
+        if (lower === 'q') { e.preventDefault(); useSkill(); return; }
+        if (lower === 'e') { e.preventDefault(); useSkill2(); return; }
+        if (key === '1') { e.preventDefault(); usePotionInBattle('small'); return; }
+        if (key === '2') { e.preventDefault(); usePotionInBattle('large'); return; }
+        if (key === '3') { e.preventDefault(); usePotionInBattle('mana'); return; }
+        return;
+      }
+
+      // Poza walką: ruch strzałkami/WASD na ekranie mapy.
+      if (screen === 'map') {
+        if (key === 'ArrowUp' || lower === 'w') { e.preventDefault(); tryMove(0, -1); return; }
+        if (key === 'ArrowDown' || lower === 's') { e.preventDefault(); tryMove(0, 1); return; }
+        if (key === 'ArrowLeft' || lower === 'a') { e.preventDefault(); tryMove(-1, 0); return; }
+        if (key === 'ArrowRight' || lower === 'd') { e.preventDefault(); tryMove(1, 0); return; }
+      }
+
+      // Poza walką: 1-6 przełącza zakładki (Mapa/Postać/Ekwipunek/Bestie/Sklep/Online).
+      const tabByDigit = { '1': 'map', '2': 'character', '3': 'inventory', '4': 'bestiary', '5': 'shop', '6': 'online' };
+      if (tabByDigit[key]) { setScreen(tabByDigit[key]); return; }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSkillTree, showVademecum, screen]);
+
   function resetGame() {
     clearSaveData();
     setPlayer(JSON.parse(JSON.stringify(INITIAL_PLAYER)));
@@ -2366,7 +2487,7 @@ function AstraliaRPG() {
 
     const currentMap = area === 'area3' ? MAP3 : area === 'area2' ? MAP2 : MAP;
     const nx = pos.x + dx, ny = pos.y + dy;
-    if (nx < 0 || nx >= 8 || ny < 0 || ny >= 8) return;
+    if (nx < 0 || nx >= currentMap[0].length || ny < 0 || ny >= currentMap.length) return;
     const tile = currentMap[ny][nx];
 
     if (tile === 'water' || tile === 'rock' || tile === 'chasm') { showToast('Nie możesz tamtędy przejść!'); return; }
@@ -2623,8 +2744,13 @@ function AstraliaRPG() {
     sound.victory();
     if (lootItems.length || gotScroll || gotGem) setTimeout(() => sound.loot(), 350);
     let willLevelUp = false;
-    { let xp = p.xp + awardedXp, xpNext = p.xpNext; while (xp >= xpNext) { xp -= xpNext; xpNext = Math.round(xpNext * 1.3 + 5); willLevelUp = true; } }
-    if (willLevelUp) setTimeout(() => sound.levelUp(), 700);
+    let levelsGainedPreview = 0;
+    let newLevelPreview = p.level;
+    { let xp = p.xp + awardedXp, xpNext = p.xpNext, lvl = p.level; while (xp >= xpNext) { xp -= xpNext; xpNext = Math.round(xpNext * 1.3 + 5); lvl += 1; willLevelUp = true; levelsGainedPreview++; } newLevelPreview = lvl; }
+    if (willLevelUp) {
+      setTimeout(() => sound.levelUp(), 700);
+      victoryLog.push(`✦ Awans na poziom ${newLevelPreview}! +${levelsGainedPreview * 4} pkt. atrybutów, +${levelsGainedPreview} pkt. umiejętności.`);
+    }
     setBattle((prev) =>
       prev
         ? { ...prev, enemy: { ...prev.enemy, curHp: 0 }, log: victoryLog, playerTurn: false, ended: true }
@@ -3313,6 +3439,7 @@ function AstraliaRPG() {
     showToast(`Przetopiono: ${item.name} (+${stoneYield}x Kamień Wzmocnienia)`);
   }
   function grantRewards(gold, xp) {
+    let leveledInfo = null;
     setPlayer((prev) => {
       let { xp: curXp, xpNext, level, maxHp, maxMp, atk, def, gold: curGold, hp, mp } = prev;
       curXp += xp; curGold += gold;
@@ -3325,8 +3452,13 @@ function AstraliaRPG() {
       }
       const newUnspentPoints = (prev.unspentPoints || 0) + levelsGained * 4;
       const newUnspentSkillPoints = (prev.unspentSkillPoints || 0) + levelsGained;
+      if (leveled) leveledInfo = { level, levelsGained };
       return { ...prev, xp: curXp, xpNext, level, maxHp, maxMp, atk, def, gold: curGold, hp: leveled ? maxHp + getAffixBonusTotal(prev).hp + getSkillTreeBonus(prev).hp : hp, mp: leveled ? maxMp + getAffixBonusTotal(prev).mp + getSkillTreeBonus(prev).mp : mp, unspentPoints: newUnspentPoints, unspentSkillPoints: newUnspentSkillPoints };
     });
+    if (leveledInfo) {
+      sound.levelUp();
+      setTimeout(() => showToast(`✦ Awans na poziom ${leveledInfo.level}! +${leveledInfo.levelsGained * 4} pkt. atrybutów, +${leveledInfo.levelsGained} pkt. umiejętności.`), 300);
+    }
   }
 
   function claimQuest(quest) {
@@ -3391,10 +3523,10 @@ function AstraliaRPG() {
 
   if (!loaded) {
     return (
-      <div style={{
+      <div className="app-shell" style={{
         fontFamily: "system-ui, -apple-system, sans-serif",
-        maxWidth: 420, margin: '0 auto', background: 'radial-gradient(circle at 50% -10%, #2c2545 0%, #1a1626 55%, #120e1c 100%)',
-        height: 700, maxHeight: '92vh', borderRadius: 10, overflow: 'hidden',
+        margin: '0 auto', background: 'radial-gradient(circle at 50% -10%, #2c2545 0%, #1a1626 55%, #120e1c 100%)',
+        borderRadius: 10, overflow: 'hidden',
         border: '3px solid #241f1a', display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         <style>{`
@@ -3409,6 +3541,7 @@ function AstraliaRPG() {
             0%, 100% { filter: brightness(1); }
             50% { filter: brightness(1.35); }
           }
+          ${RESPONSIVE_SHELL_CSS}
         `}</style>
         <div style={{ textAlign: 'center' }}>
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
@@ -3425,10 +3558,11 @@ function AstraliaRPG() {
   }
 
   return (
-    <div style={{
+    <div className="page-wrap">
+    <div className="app-shell" style={{
       fontFamily: "system-ui, -apple-system, sans-serif",
-      maxWidth: 420, margin: '0 auto', background: 'radial-gradient(circle at 50% -10%, #2c2545 0%, #1a1626 55%, #120e1c 100%)',
-      height: 700, maxHeight: '92vh', borderRadius: 10,
+      background: 'radial-gradient(circle at 50% -10%, #2c2545 0%, #1a1626 55%, #120e1c 100%)',
+      borderRadius: 10,
       border: '3px solid #241f1a', position: 'relative',
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>
@@ -3470,6 +3604,7 @@ function AstraliaRPG() {
             position: absolute; width: 6px; height: 6px; border-radius: 50%;
             animation: pxparticle 0.6s ease-out forwards; pointer-events: none;
           }
+          ${RESPONSIVE_SHELL_CSS}
         `}</style>
 
       {/* STATUS BAR */}
@@ -3652,6 +3787,44 @@ function AstraliaRPG() {
         </div>
       )}
     </div>
+
+      {/* PANEL BOCZNY — widoczny tylko na szerokim ekranie (desktop). Renderowany
+          zawsze, ale ukryty przez CSS (.side-panel{display:none}) poniżej progu
+          1180px, więc nie kosztuje nic na telefonie i nie wymaga osobnego stanu
+          JS do wykrywania szerokości okna. */}
+      <aside className="side-panel">
+        <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 13, color: '#e8c468', marginBottom: 10, textAlign: 'center' }}>
+          Astralia RPG
+        </div>
+        <div style={{ borderTop: '2px solid #3d3654', paddingTop: 10, marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: '#e8dcc0', fontWeight: 700, marginBottom: 4 }}>{player.name} • Lv.{player.level}</div>
+          <div style={{ fontSize: 11, color: '#a89fb5', marginBottom: 6 }}>{(CLASSES[player.charClass] || CLASSES.warrior).name}</div>
+          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#c9c0d4', marginBottom: 4 }}>
+            <span>⚔ {totalAtk(player)}</span><span>🛡 {totalDef(player)}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#e8c468' }}>
+            <Coins size={11} /> {player.gold}
+          </div>
+        </div>
+        <div style={{ borderTop: '2px solid #3d3654', paddingTop: 10, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#e8dcc0', fontWeight: 700, marginBottom: 4 }}>Lokacja</div>
+          <div style={{ fontSize: 11, color: '#a89fb5' }}>
+            {inDungeon ? DUNGEON_NAMES[area] : area === 'area3' ? 'Skute Szczyty' : area === 'area2' ? 'Mroczne Pustkowia' : 'Kraina Początkowa'}
+          </div>
+        </div>
+        <div style={{ borderTop: '2px solid #3d3654', paddingTop: 10 }}>
+          <div style={{ fontSize: 11, color: '#e8dcc0', fontWeight: 700, marginBottom: 6 }}>Skróty klawiszowe</div>
+          <div style={{ fontSize: 10, color: '#a89fb5', lineHeight: 1.8 }}>
+            <div><strong style={{ color: '#e8c468' }}>WASD / Strzałki</strong> — ruch</div>
+            <div><strong style={{ color: '#e8c468' }}>F</strong> — Szybka Walka</div>
+            <div><strong style={{ color: '#e8c468' }}>Spacja / Enter</strong> — Atak</div>
+            <div><strong style={{ color: '#e8c468' }}>Q / E</strong> — Umiejętności</div>
+            <div><strong style={{ color: '#e8c468' }}>1 / 2 / 3</strong> — Mikstury (walka) / Zakładki</div>
+            <div><strong style={{ color: '#e8c468' }}>Esc</strong> — Zamknij okno</div>
+          </div>
+        </div>
+      </aside>
+    </div>
   );
 }
 
@@ -3660,10 +3833,10 @@ function AstraliaRPG() {
 --------------------------------------------------------- */
 function ClassSelectScreen({ onSelect }) {
   return (
-    <div className="pxscroll" style={{
+    <div className="pxscroll app-shell" style={{
       fontFamily: "system-ui, -apple-system, sans-serif",
-      maxWidth: 420, margin: '0 auto', background: 'radial-gradient(circle at 50% -10%, #2c2545 0%, #1a1626 55%, #120e1c 100%)',
-      height: 700, maxHeight: '92vh', borderRadius: 10,
+      margin: '0 auto', background: 'radial-gradient(circle at 50% -10%, #2c2545 0%, #1a1626 55%, #120e1c 100%)',
+      borderRadius: 10,
       border: '3px solid #241f1a', overflowY: 'auto', WebkitOverflowScrolling: 'touch',
       padding: 18, boxSizing: 'border-box',
     }}>
@@ -3679,6 +3852,7 @@ function ClassSelectScreen({ onSelect }) {
             0%, 100% { filter: brightness(1); }
             50% { filter: brightness(1.35); }
           }
+          ${RESPONSIVE_SHELL_CSS}
         `}</style>
       <div style={{ textAlign: 'center', marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
@@ -3729,6 +3903,11 @@ function tileTexture(tile, x = 0, y = 0) {
   }
 }
 
+// Ile pól widać naraz w oknie kamery na mapach świata (bez zmian względem
+// starego wyglądu — mapy urosły, ale "wizjer" zostaje ten sam, po prostu
+// teraz przesuwa się po większej planszy zamiast pokazywać ją całą naraz).
+const MAP_VIEWPORT_SIZE = 8;
+
 function MapScene({ pos, onMove, area, spawns, npc, heroAvailable, onRest, hpFull, restOnCooldown, restCooldownIn, inDungeon, dungeonSpawns, bossAvailable, bossRespawnIn, onExitDungeon, dungeonLayoutIdx, dungeonChestOpened }) {
   const atDungeonEntrance = inDungeon && pos.x === DUNGEON_ENTRY_POS.x && pos.y === DUNGEON_ENTRY_POS.y;
   const grid = inDungeon ? DUNGEON_LAYOUTS[dungeonLayoutIdx || 0] : area === 'area3' ? MAP3 : area === 'area2' ? MAP2 : MAP;
@@ -3737,13 +3916,33 @@ function MapScene({ pos, onMove, area, spawns, npc, heroAvailable, onRest, hpFul
   const heroSprite = HERO_SPRITES[area] || WOLF_SPRITE;
   const activeSpawns = inDungeon ? dungeonSpawns : spawns;
   const bossColor = RANKS.pradawny.color;
+
+  // Kamera: na mapach świata (nie w lochu) pokazujemy tylko okno
+  // MAP_VIEWPORT_SIZE x MAP_VIEWPORT_SIZE wycentrowane na graczu, przycięte
+  // do krawędzi mapy. Loch (5x5) zawsze widać w całości — bez zmian.
+  const gridH = grid.length, gridW = grid[0].length;
+  const viewW = inDungeon ? gridW : Math.min(MAP_VIEWPORT_SIZE, gridW);
+  const viewH = inDungeon ? gridH : Math.min(MAP_VIEWPORT_SIZE, gridH);
+  let camX = 0, camY = 0;
+  if (!inDungeon) {
+    camX = Math.max(0, Math.min(gridW - viewW, pos.x - Math.floor(viewW / 2)));
+    camY = Math.max(0, Math.min(gridH - viewH, pos.y - Math.floor(viewH / 2)));
+  }
+  const visibleTiles = [];
+  for (let wy = 0; wy < viewH; wy++) {
+    for (let wx = 0; wx < viewW; wx++) {
+      const y = camY + wy, x = camX + wx;
+      visibleTiles.push({ x, y, tile: grid[y][x] });
+    }
+  }
+
   return (
     <div>
       <div style={{ textAlign: 'center', color: '#e8c468', fontSize: 10, marginBottom: 4, fontFamily: "'Press Start 2P', monospace" }}>
         {inDungeon ? DUNGEON_NAMES[area] : area === 'area3' ? 'Skute Szczyty' : area === 'area2' ? 'Mroczne Pustkowia' : 'Kraina Początkowa'}
       </div>
       <div style={{
-        display: 'grid', gridTemplateColumns: `repeat(${inDungeon ? 5 : 8}, 1fr)`, gap: 1.5,
+        display: 'grid', gridTemplateColumns: `repeat(${viewW}, 1fr)`, gap: 1.5,
         background: inDungeon ? '#0a0708' : '#14111c', padding: inDungeon ? 8 : 4, borderRadius: 6,
         borderTop: inDungeon ? '2px solid #1a0f08' : '2px solid #0d0b12',
         borderLeft: inDungeon ? '2px solid #1a0f08' : '2px solid #0d0b12',
@@ -3751,8 +3950,7 @@ function MapScene({ pos, onMove, area, spawns, npc, heroAvailable, onRest, hpFul
         borderBottom: inDungeon ? '2px solid #4a2c14' : '2px solid #3d3654',
         boxShadow: inDungeon ? 'inset 0 0 40px 10px rgba(0,0,0,0.85), inset 0 0 18px 4px rgba(232,133,61,0.12)' : 'none',
       }}>
-        {grid.map((row, y) =>
-          row.map((tile, x) => {
+        {visibleTiles.map(({ x, y, tile }) => {
             const isPlayer = pos.x === x && pos.y === y;
             const isNpc = !inDungeon && !isPlayer && npc && npc.x === x && npc.y === y;
             const isHero = !inDungeon && !isPlayer && !isNpc && heroPos && heroPos.x === x && heroPos.y === y;
@@ -3819,8 +4017,7 @@ function MapScene({ pos, onMove, area, spawns, npc, heroAvailable, onRest, hpFul
                 : null}
               </div>
             );
-          })
-        )}
+        })}
       </div>
       <p style={{ color: '#a89fb5', fontSize: 10, textAlign: 'center', margin: '6px 0 4px' }}>
         {inDungeon
@@ -4302,6 +4499,14 @@ function VademecumModal({ onClose }) {
         }}>✕</button>
       </div>
       <div className="pxscroll" style={{ flex: 1, overflowY: 'auto', paddingRight: 2 }}>
+        <VademecumSection title="Sterowanie klawiaturą">
+          <p><strong>Strzałki / WASD</strong> — ruch po mapie.</p>
+          <p><strong>F</strong> — Szybka Walka (Auto) w trakcie walki.</p>
+          <p><strong>Spacja / Enter</strong> — Atak. <strong>Q</strong> — pierwsza umiejętność. <strong>E</strong> — druga umiejętność.</p>
+          <p><strong>1 / 2 / 3</strong> — w walce: mała mikstura / duża mikstura / mikstura many. Poza walką: szybkie przełączanie zakładek (Mapa/Postać/Ekwipunek/Bestie/Sklep/Online).</p>
+          <p><strong>Esc</strong> — zamyka otwarte okno (np. to Vademecum czy Drzewko Umiejętności).</p>
+        </VademecumSection>
+
         <VademecumSection title="Rangi wrogów i symbole">
           {Object.entries(RANKS).filter(([, r]) => r.label).map(([key, r]) => (
             <div key={key} style={{ marginBottom: 3 }}>
