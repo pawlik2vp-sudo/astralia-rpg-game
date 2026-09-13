@@ -148,18 +148,47 @@ function PixelSprite({ sprite, size = 6, colorOverride, className }) {
       }}
     >
       {sprite.rows.flatMap((row, y) =>
-        row.split('').map((ch, x) => (
-          <div
-            key={`${x}-${y}`}
-            style={{
-              width: size,
-              height: size,
-              backgroundColor: legend[ch] || 'transparent',
-            }}
-          />
-        ))
+        row.split('').map((ch, x) => {
+          const color = legend[ch];
+          return (
+            <div
+              key={`${x}-${y}`}
+              style={{
+                width: size,
+                height: size,
+                backgroundColor: color || 'transparent',
+                // Subtelny "bevel" na każdym pikselu — sztuczna głębia bez
+                // zmiany danych sprite'a (żaden kolor się nie zmienia, tylko
+                // dokładamy world-space highlight/cień na krawędziach kostki).
+                boxShadow: color
+                  ? 'inset 1px 1px 0 rgba(255,255,255,0.20), inset -1px -1px 0 rgba(0,0,0,0.32)'
+                  : 'none',
+              }}
+            />
+          );
+        })
       )}
     </div>
+  );
+}
+
+// Miękki cień pod stopami postaci/potwora na mapie — "przykleja" płaski
+// sprite do podłoża, tak jak w Margonem. Czysto kosmetyczne, zero logiki.
+function GroundShadow({ wide = false }) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: '50%',
+        bottom: wide ? -3 : -2,
+        width: wide ? '78%' : '62%',
+        height: wide ? '30%' : '26%',
+        transform: 'translateX(-50%)',
+        background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.22) 55%, rgba(0,0,0,0) 75%)',
+        borderRadius: '50%',
+        pointerEvents: 'none',
+      }}
+    />
   );
 }
 
@@ -4038,19 +4067,25 @@ function MapScene({ pos, onMove, area, spawns, npc, heroAvailable, onRest, hpFul
                 }}
               >
                 {isPlayer ? (
-                  <PixelSprite sprite={PLAYER_SPRITE} size={inDungeon ? 3.4 : 2.4}  className="map-sprite" />
+                  <div style={{ position: 'relative' }}>
+                    <GroundShadow wide={inDungeon} />
+                    <PixelSprite sprite={PLAYER_SPRITE} size={inDungeon ? 3.4 : 2.4}  className="map-sprite" />
+                  </div>
                 ) : isNpc ? (
                   <div style={{ filter: 'drop-shadow(0 0 4px #e8dcc0)', position: 'relative' }}>
+                    <GroundShadow />
                     <PixelSprite sprite={TRAVELER_SPRITE} size={1.9}  className="map-sprite" />
                     {!npc.met && <span style={{ position: 'absolute', top: -6, right: -4, fontSize: 10, color: '#e8c468' }}>!</span>}
                   </div>
                 ) : isHero ? (
                   <div style={{ filter: heroAvailable ? `drop-shadow(0 0 5px ${heroColor})` : 'none', position: 'relative' }}>
+                    <GroundShadow />
                     <PixelSprite sprite={heroSprite} size={2.1}  className="map-sprite" />
                     <span style={{ position: 'absolute', top: -6, right: -6, fontSize: 9, color: heroColor }}>♛</span>
                   </div>
                 ) : spawn ? (
                   <div style={{ filter: `drop-shadow(0 0 4px ${rankColor})`, position: 'relative' }}>
+                    <GroundShadow wide={inDungeon} />
                     <PixelSprite sprite={spawn.monster.sprite} size={inDungeon ? 2.8 : 1.9} colorOverride={spawn.monster.colorOverride}  className="map-sprite" />
                     {RANKS[spawn.monster.rank]?.symbol && (
                       <span style={{ position: 'absolute', top: -6, right: -4, fontSize: 8, color: rankColor }}>{RANKS[spawn.monster.rank].symbol}</span>
@@ -4207,9 +4242,15 @@ function BattleScene({ battle, player, onAttack, onSkill, onSkill2, onFlee, onAu
           );
         })()}
         <div style={{
-          display: 'flex', justifyContent: 'center', marginBottom: 8,
+          display: 'flex', justifyContent: 'center', marginBottom: 8, position: 'relative',
           filter: rankColor ? `drop-shadow(0 0 8px ${rankColor})` : 'none',
         }}>
+          <div style={{
+            position: 'absolute', left: '50%', bottom: enemy.isBoss ? -6 : -2, width: enemy.isBoss ? '58%' : '52%', height: '20%',
+            transform: 'translateX(-50%)',
+            background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.2) 55%, rgba(0,0,0,0) 75%)',
+            borderRadius: '50%', pointerEvents: 'none',
+          }} />
           <PixelSprite sprite={enemy.sprite} size={enemy.isBoss ? 7 : 6} colorOverride={enemy.colorOverride} className="battle-sprite" />
         </div>
         <div style={{
