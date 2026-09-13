@@ -1,0 +1,66 @@
+<title>Astralia RPG</title>
+<style>
+  html, body { height: 100%; }
+  body { margin: 0; background: #120e1c; display: flex; align-items: center; justify-content: center; min-height: 100dvh; }
+  #root { width: 100%; display: flex; align-items: center; justify-content: center; }
+  #root-loading { font-family: system-ui, -apple-system, sans-serif; color: #e8c468; font-size: 14px; text-align: center; padding: 40px 20px; }
+</style>
+<div id="root"><div id="root-loading">Ładowanie Astralia RPG…</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/15.5.36/Tone.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.3/babel.min.js"></script>
+
+<script>
+  var useState = React.useState;
+  var useEffect = React.useEffect;
+  var useRef = React.useRef;
+
+  function makeIcon(symbol) {
+    return function IconCmp(props) {
+      props = props || {};
+      var size = props.size || 18;
+      var style = Object.assign({
+        display: 'inline-block',
+        fontSize: (typeof size === 'number' ? size + 'px' : size),
+        lineHeight: 1,
+        fontStyle: 'normal',
+        verticalAlign: 'middle',
+      }, props.style || {});
+      var rest = {};
+      for (var k in props) {
+        if (k !== 'size' && k !== 'style' && k !== 'children' && k !== 'color' && k !== 'strokeWidth') rest[k] = props[k];
+      }
+      rest.style = style;
+      rest['aria-hidden'] = true;
+      return React.createElement('span', rest, symbol);
+    };
+  }
+
+  var Sword = makeIcon('⚔️');
+  var Shield = makeIcon('🛡️');
+  var Package = makeIcon('📦');
+  var Store = makeIcon('🏪');
+  var Heart = makeIcon('❤️');
+  var Zap = makeIcon('⚡');
+  var Coins = makeIcon('🪙');
+  var Hammer = makeIcon('🔨');
+  var ArrowUp = makeIcon('▲');
+  var ArrowDown = makeIcon('▼');
+  var ArrowLeft = makeIcon('◀');
+  var ArrowRight = makeIcon('▶');
+  var X = makeIcon('✕');
+  var User = makeIcon('👤');
+  var MapIcon = makeIcon('🗺️');
+  var Footprints = makeIcon('👣');
+  var RotateCcw = makeIcon('↺');
+  var BookOpen = makeIcon('📖');
+  var Volume2 = makeIcon('🔊');
+  var VolumeX = makeIcon('🔇');
+  var Globe = makeIcon('🌐');
+  var Send = makeIcon('➤');
+  var Lock = makeIcon('🔒');
+</script>
+
+<script type="text/babel" data-presets="react">
