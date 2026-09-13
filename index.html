@@ -2169,6 +2169,12 @@ function AstraliaRPG() {
   }
 
   useEffect(() => {
+    // Strażnik: dopóki prawdziwy zapis się nie wczyta, `pos` wciąż ma
+    // wartość domyślną INITIAL_POS, która akurat POKRYWA SIĘ z polem miasta
+    // — bez tego strażnika każde odświeżenie strony leczyłoby gracza za darmo
+    // (efekt odpalał się na starym, domyślnym pos zanim realny zapis nadpisał
+    // stan, w tym samym cyklu co setPlayer z wczytanego zapisu).
+    if (!loaded) return;
     if (area !== 'area1') return;
     const tile = MAP[pos.y][pos.x];
     if (tile === 'town') {
@@ -2177,7 +2183,7 @@ function AstraliaRPG() {
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pos, area]);
+  }, [pos, area, loaded]);
 
   function showToast(msg) {
     setToast(msg);
