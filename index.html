@@ -3799,8 +3799,9 @@ function AstraliaRPG() {
         <div style={{ borderTop: '2px solid #3d3654', paddingTop: 10, marginBottom: 10 }}>
           <div style={{ fontSize: 12, color: '#e8dcc0', fontWeight: 700, marginBottom: 4 }}>{player.name} • Lv.{player.level}</div>
           <div style={{ fontSize: 11, color: '#a89fb5', marginBottom: 6 }}>{(CLASSES[player.charClass] || CLASSES.warrior).name}</div>
-          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#c9c0d4', marginBottom: 4 }}>
-            <span>⚔ {totalAtk(player)}</span><span>🛡 {totalDef(player)}</span>
+          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#c9c0d4', marginBottom: 4, alignItems: 'center' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Sword size={11} color="#e8853d" /> {Math.round(totalAtk(player))}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Shield size={11} color="#4a6fa5" /> {Math.round(totalDef(player))}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#e8c468' }}>
             <Coins size={11} /> {player.gold}
