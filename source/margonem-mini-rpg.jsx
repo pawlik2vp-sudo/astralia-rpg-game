@@ -2087,6 +2087,80 @@ export default function AstraliaRPG() {
     if (typeof saved.restCooldownAt === 'number') setRestCooldownAt(saved.restCooldownAt);
     return data;
   }
+  async function listAuctionItem(item, price) {
+    const p = playerRef.current;
+    const url = (p.onlineServerUrl || '').trim().replace(/\/+$/, '');
+    if (!url || !p.accountToken) throw new Error('brak_konfiguracji');
+    const data = await onlineFetch(`${url}/api/auction/list`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: p.accountToken, item, price }),
+    });
+    setPlayer((prev) => ({ ...prev, inventoryItems: (prev.inventoryItems || []).filter((i) => i.id !== item.id) }));
+    showToast(`Wystawiono na aukcję: ${item.name} za ${price}z`);
+    return data;
+  }
+  async function buyAuctionListing(listing) {
+    const p = playerRef.current;
+    const url = (p.onlineServerUrl || '').trim().replace(/\/+$/, '');
+    if (!url || !p.accountToken) throw new Error('brak_konfiguracji');
+    if (p.gold < listing.price) { showToast('Za mało złota!'); throw new Error('za_malo_zlota'); }
+    if ((p.inventoryItems || []).length >= INVENTORY_MAX_SLOTS) { showToast('Brak miejsca w torbie!'); throw new Error('brak_miejsca'); }
+    const data = await onlineFetch(`${url}/api/auction/buy`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: p.accountToken, listingId: listing.id }),
+    });
+    const boughtItem = { ...data.item, id: `auc-${listing.id}-${Date.now()}` };
+    sound.coin();
+    setPlayer((prev) => ({
+      ...prev,
+      gold: prev.gold - listing.price,
+      inventoryItems: [...(prev.inventoryItems || []), boughtItem],
+    }));
+    showToast(`Kupiono: ${boughtItem.name}`);
+    return data;
+  }
+  async function cancelAuctionListing(listingId) {
+    const p = playerRef.current;
+    const url = (p.onlineServerUrl || '').trim().replace(/\/+$/, '');
+    if (!url || !p.accountToken) throw new Error('brak_konfiguracji');
+    const data = await onlineFetch(`${url}/api/auction/cancel`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: p.accountToken, listingId }),
+    });
+    showToast('Zdjęto ofertę — przedmiot czeka do odebrania w sekcji „Do odebrania”.');
+    return data;
+  }
+  async function claimAuctionRewards() {
+    const p = playerRef.current;
+    const url = (p.onlineServerUrl || '').trim().replace(/\/+$/, '');
+    if (!url || !p.accountToken) throw new Error('brak_konfiguracji');
+    const data = await onlineFetch(`${url}/api/auction/claim`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: p.accountToken }),
+    });
+    const items = data.items || [];
+    const gold = data.gold || 0;
+    const freeSlots = INVENTORY_MAX_SLOTS - (playerRef.current.inventoryItems || []).length;
+    const itemsToKeep = items.slice(0, Math.max(0, freeSlots)).map((it, idx) => ({ ...it, id: `aucclaim-${Date.now()}-${idx}` }));
+    if (items.length > itemsToKeep.length) {
+      showToast(`Uwaga: ${items.length - itemsToKeep.length} przedm. nie zmieściło się w torbie i przepadło!`);
+    }
+    if (gold > 0) sound.coin();
+    if (gold > 0 || itemsToKeep.length > 0) {
+      setPlayer((prev) => ({
+        ...prev,
+        gold: prev.gold + gold,
+        inventoryItems: [...(prev.inventoryItems || []), ...itemsToKeep],
+      }));
+      const parts = [];
+      if (gold > 0) parts.push(`${gold}z`);
+      if (itemsToKeep.length) parts.push(`${itemsToKeep.length} przedm.`);
+      showToast(`Odebrano: ${parts.join(', ')}`);
+    } else {
+      showToast('Nic do odebrania.');
+    }
+    return data;
+  }
   function allocateAttributePoint(stat) {
     setPlayer((prev) => {
       if ((prev.unspentPoints || 0) <= 0) return prev;
@@ -3817,6 +3891,10 @@ export default function AstraliaRPG() {
             onSaveToServer={saveCharacterToServer}
             onLoadFromServer={loadCharacterFromServer}
             accountSaveStatus={accountSaveStatus}
+            onListAuctionItem={listAuctionItem}
+            onBuyAuctionListing={buyAuctionListing}
+            onCancelAuctionListing={cancelAuctionListing}
+            onClaimAuctionRewards={claimAuctionRewards}
           />
         ) : (
           <ShopScreen
@@ -5118,7 +5196,7 @@ async function onlineFetch(url, options, timeoutMs = 6000) {
   }
 }
 
-function OnlineScreen({ player, onUpdateConfig, onUpdateAccountAuth, onLogoutAccount, onSaveToServer, onLoadFromServer, accountSaveStatus }) {
+function OnlineScreen({ player, onUpdateConfig, onUpdateAccountAuth, onLogoutAccount, onSaveToServer, onLoadFromServer, accountSaveStatus, onListAuctionItem, onBuyAuctionListing, onCancelAuctionListing, onClaimAuctionRewards }) {
   const serverUrl = (player.onlineServerUrl || '').trim().replace(/\/+$/, '');
   const [urlDraft, setUrlDraft] = useState(player.onlineServerUrl || '');
   const [nickDraft, setNickDraft] = useState(player.onlineNick || '');
@@ -5138,6 +5216,14 @@ function OnlineScreen({ player, onUpdateConfig, onUpdateAccountAuth, onLogoutAcc
   const [loadBusy, setLoadBusy] = useState(false);
   const [loadMsg, setLoadMsg] = useState('');
   const [manualSaveMsg, setManualSaveMsg] = useState('');
+
+  const [auctionTab, setAuctionTab] = useState('browse');
+  const [auctionListings, setAuctionListings] = useState([]);
+  const [auctionMine, setAuctionMine] = useState({ myListings: [], pendingGold: 0, pendingItems: [] });
+  const [auctionBusy, setAuctionBusy] = useState(false);
+  const [auctionMsg, setAuctionMsg] = useState('');
+  const [sellPickedId, setSellPickedId] = useState(null);
+  const [sellPrice, setSellPrice] = useState('');
 
   async function handleRegister() {
     const u = authUsername.trim();
@@ -5268,6 +5354,60 @@ function OnlineScreen({ player, onUpdateConfig, onUpdateAccountAuth, onLogoutAcc
     if (chatBoxRef.current) chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
   }, [messages]);
 
+  useEffect(() => {
+    if (!serverUrl || !player.accountToken) { setAuctionListings([]); setAuctionMine({ myListings: [], pendingGold: 0, pendingItems: [] }); return undefined; }
+    let cancelled = false;
+    async function pollAuction() {
+      try {
+        const data = await onlineFetch(`${serverUrl}/api/auction`);
+        if (!cancelled) setAuctionListings(data.listings || []);
+      } catch (e) { /* cicho — spróbujemy przy kolejnym odpytaniu */ }
+      try {
+        const mine = await onlineFetch(`${serverUrl}/api/auction/mine?token=${encodeURIComponent(player.accountToken)}`);
+        if (!cancelled) setAuctionMine({ myListings: mine.myListings || [], pendingGold: mine.pendingGold || 0, pendingItems: mine.pendingItems || [] });
+      } catch (e) { /* cicho */ }
+    }
+    pollAuction();
+    const auctionInterval = setInterval(pollAuction, 10000);
+    return () => { cancelled = true; clearInterval(auctionInterval); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverUrl, player.accountToken]);
+
+  async function handleListItem() {
+    const item = (player.inventoryItems || []).find((i) => i.id === sellPickedId);
+    const price = Math.round(Number(sellPrice));
+    if (!item) { setAuctionMsg('Wybierz przedmiot z torby.'); return; }
+    if (!Number.isFinite(price) || price < 1) { setAuctionMsg('Podaj poprawną cenę (min. 1z).'); return; }
+    setAuctionBusy(true); setAuctionMsg('');
+    try {
+      await onListAuctionItem(item, price);
+      setSellPickedId(null); setSellPrice('');
+    } catch (e) {
+      const msg = String(e && e.message || '');
+      setAuctionMsg(msg.includes('too_many_listings') ? 'Masz już maksymalną liczbę aktywnych ofert (8).' : 'Nie udało się wystawić przedmiotu.');
+    } finally { setAuctionBusy(false); }
+  }
+  async function handleBuyListing(listing) {
+    setAuctionBusy(true); setAuctionMsg('');
+    try { await onBuyAuctionListing(listing); }
+    catch (e) { /* komunikat już pokazany przez toast w handlerze */ }
+    finally { setAuctionBusy(false); }
+  }
+  async function handleCancelListing(listingId) {
+    setAuctionBusy(true); setAuctionMsg('');
+    try { await onCancelAuctionListing(listingId); }
+    catch (e) { setAuctionMsg('Nie udało się zdjąć oferty.'); }
+    finally { setAuctionBusy(false); }
+  }
+  const freeInvSlots = INVENTORY_MAX_SLOTS - (player.inventoryItems || []).length;
+  const claimBlockedByFullBag = auctionMine.pendingItems.length > freeInvSlots;
+  async function handleClaim() {
+    setAuctionBusy(true); setAuctionMsg('');
+    try { await onClaimAuctionRewards(); }
+    catch (e) { setAuctionMsg('Nie udało się odebrać.'); }
+    finally { setAuctionBusy(false); }
+  }
+
   function handleConnect() {
     const cleanUrl = urlDraft.trim().replace(/\/+$/, '');
     const cleanNick = (nickDraft.trim() || 'Bezimienny').slice(0, 20);
@@ -5367,6 +5507,87 @@ function OnlineScreen({ player, onUpdateConfig, onUpdateAccountAuth, onLogoutAcc
           </>
         )}
       </div>
+
+      {player.accountToken && connected && (
+        <>
+          <SectionTitle>🏛 Dom Aukcyjny</SectionTitle>
+          <p style={{ color: '#a89fb5', fontSize: 11, marginBottom: 8 }}>
+            Wystaw przedmiot na sprzedaż innym graczom albo kup coś z ich ofert. Złoto ze sprzedaży i przedmioty z anulowanych ofert czekają w sekcji „Do odebrania” — serwer trzyma je w depozycie, dopóki nie odbierzesz.
+          </p>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+            <PixelButton onClick={() => setAuctionTab('browse')} color={auctionTab === 'browse' ? '#4a90d9' : '#4a4258'} style={{ flex: 1 }}>Przeglądaj</PixelButton>
+            <PixelButton onClick={() => setAuctionTab('sell')} color={auctionTab === 'sell' ? '#4a90d9' : '#4a4258'} style={{ flex: 1 }}>Wystaw</PixelButton>
+            <PixelButton onClick={() => setAuctionTab('mine')} color={auctionTab === 'mine' ? '#4a90d9' : '#4a4258'} style={{ flex: 1 }}>
+              Moje / Odbiór{(auctionMine.pendingGold > 0 || auctionMine.pendingItems.length > 0) ? ' ●' : ''}
+            </PixelButton>
+          </div>
+          {auctionMsg && <p style={{ fontSize: 10, color: '#e05a4a', marginBottom: 8 }}>{auctionMsg}</p>}
+
+          {auctionTab === 'browse' && (
+            <div style={{ background: '#241f30', borderRadius: 6, padding: 8, marginBottom: 14, maxHeight: 260, overflowY: 'auto' }}>
+              {auctionListings.length === 0 ? (
+                <p style={{ color: '#6b6478', fontSize: 11 }}>Brak aktywnych ofert.</p>
+              ) : (
+                auctionListings.map((l) => (
+                  <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 4px', borderBottom: '1px solid #3d3654', gap: 8 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: RARITY_COLORS[l.item.rarity] || '#e8dcc0', fontSize: 11, fontWeight: 'bold' }}>{l.item.name}</div>
+                      <div style={{ color: '#8a8298', fontSize: 10 }}>od {l.sellerNick} • {l.price}z</div>
+                    </div>
+                    <PixelButton onClick={() => handleBuyListing(l)} disabled={auctionBusy || player.gold < l.price} color="#7fbf6a" style={{ flexShrink: 0 }}>Kup</PixelButton>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {auctionTab === 'sell' && (
+            <div style={{ background: '#241f30', borderRadius: 6, padding: 10, marginBottom: 14 }}>
+              {(player.inventoryItems || []).length === 0 ? (
+                <p style={{ color: '#6b6478', fontSize: 11 }}>Twoja torba jest pusta — nie masz czego wystawić.</p>
+              ) : (
+                <>
+                  <div style={{ maxHeight: 180, overflowY: 'auto', marginBottom: 8 }}>
+                    {(player.inventoryItems || []).map((it) => (
+                      <div
+                        key={it.id}
+                        onClick={() => setSellPickedId(it.id)}
+                        style={{ padding: '5px 6px', marginBottom: 3, borderRadius: 4, cursor: 'pointer', background: sellPickedId === it.id ? '#3d3654' : '#14111c', border: sellPickedId === it.id ? '2px solid #4a90d9' : '2px solid transparent' }}
+                      >
+                        <span style={{ color: RARITY_COLORS[it.rarity] || '#e8dcc0', fontSize: 11 }}>{it.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <label style={{ color: '#c9c0d4', fontSize: 10, display: 'block', marginBottom: 3 }}>Cena (złoto)</label>
+                  <input value={sellPrice} onChange={(e) => setSellPrice(e.target.value.replace(/[^0-9]/g, ''))} maxLength={9} placeholder="np. 500" style={{ ...inputStyle, marginBottom: 8 }} />
+                  <PixelButton onClick={handleListItem} disabled={auctionBusy || !sellPickedId} color="#e8853d" style={{ width: '100%' }}>Wystaw na aukcję</PixelButton>
+                </>
+              )}
+            </div>
+          )}
+
+          {auctionTab === 'mine' && (
+            <div style={{ background: '#241f30', borderRadius: 6, padding: 10, marginBottom: 14 }}>
+              <div style={{ marginBottom: 10 }}>
+                <p style={{ color: '#e8c468', fontSize: 12, marginBottom: 6 }}>Do odebrania: {auctionMine.pendingGold}z{auctionMine.pendingItems.length ? `, ${auctionMine.pendingItems.length} przedm.` : ''}</p>
+                {claimBlockedByFullBag && <p style={{ color: '#e05a4a', fontSize: 10, marginBottom: 6 }}>Zrób miejsce w torbie ({auctionMine.pendingItems.length} przedm. czeka, wolnych slotów: {freeInvSlots}) — inaczej część przepadnie.</p>}
+                <PixelButton onClick={handleClaim} disabled={auctionBusy || (auctionMine.pendingGold === 0 && auctionMine.pendingItems.length === 0)} color="#7fbf6a" style={{ width: '100%' }}>Odbierz</PixelButton>
+              </div>
+              <p style={{ color: '#c9c0d4', fontSize: 11, marginBottom: 6 }}>Twoje aktywne oferty:</p>
+              {auctionMine.myListings.length === 0 ? (
+                <p style={{ color: '#6b6478', fontSize: 11 }}>Brak.</p>
+              ) : (
+                auctionMine.myListings.map((l) => (
+                  <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 4px', borderBottom: '1px solid #3d3654', gap: 8 }}>
+                    <span style={{ color: RARITY_COLORS[l.item.rarity] || '#e8dcc0', fontSize: 11 }}>{l.item.name} — {l.price}z</span>
+                    <PixelButton onClick={() => handleCancelListing(l.id)} disabled={auctionBusy} color="#4a4258" style={{ flexShrink: 0, fontSize: 10 }}>Zdejmij</PixelButton>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </>
+      )}
 
       {connected && (
         <>
